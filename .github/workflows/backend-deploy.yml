@@ -1,0 +1,62 @@
+name: Build and Push Backend
+
+# WHY: student Azure account cannot create app registrations, so automated
+# Azure deploy from GitHub Actions is not possible. CI builds and pushes the
+# image; deployment to Container Apps is done manually from a local terminal
+# (see scripts/deploy.ps1). This is still valid CI/CD — CI is fully automated,
+# CD is one command from a machine that has az login already working.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-deploy.yml'
+
+permissions:
+  contents: read
+  packages: write   # WHY: required to push images to GHCR
+
+env:
+  IMAGE_NAME: ${{ github.repository_owner }}/route-recommender-backend
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}  # WHY: auto-provided; no manual secret needed
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ghcr.io/${{ env.IMAGE_NAME }}:latest
+
+      - name: Smoke test image
+        run: |
+          docker run -d --name smoke -p 8000:8000 \
+            -e COSMOS_CONNECTION_STRING="AccountEndpoint=https://dummy.documents.azure.com/;AccountKey=dGVzdA==" \
+            -e ORS_API_KEY="dummy_key_for_smoke_test" \
+            ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          sleep 6
+          curl --fail --retry 3 --retry-delay 2 http://localhost:8000/health
+          docker stop smoke && docker rm smoke
+
+      - name: Output deploy command
+        run: |
+          echo "Image pushed: ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo ""
+          echo "To deploy, run from your local terminal:"
+          echo "az containerapp update --name route-recommender-backend --resource-group route-recommender-rg --image ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}"
