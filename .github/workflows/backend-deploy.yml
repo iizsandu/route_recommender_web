@@ -8,7 +8,7 @@ name: Build and Push Backend
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'backend/**'
       - '.github/workflows/backend-deploy.yml'
