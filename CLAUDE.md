@@ -759,6 +759,14 @@ LOG_FORMAT=json
 
 > Move tasks here when fully implemented + tested + deployed.
 
+### P0-5 — Configure CORS, secrets, observability basics (2026-05-12)
+- `backend/app/utils/logger.py` — structlog configured with JSON renderer (prod) / ConsoleRenderer (dev); custom `add_request_id` processor reads ContextVar on every log call
+- `backend/app/utils/__init__.py` — package init
+- `backend/app/main.py` — `RequestIdMiddleware` injects UUID per request into ContextVar + `X-Request-ID` response header; `configure_logging()` called in lifespan startup
+- `backend/app/config.py` — fixed `ALLOWED_ORIGINS` field (missing type annotation + quotes)
+- Startup validation confirmed: missing `COSMOS_CONNECTION_STRING` raises `ValidationError` at import time before server binds to port
+- JSON log output verified locally: `{"event": "...", "request_id": "-", "level": "info", "timestamp": "..."}`
+
 ### P0-4 — Deploy frontend to Vercel (2026-05-11)
 - `frontend/.env.example` — documents `VITE_API_BASE_URL` and `VITE_MAPTILER_KEY` with `VITE_*` prefix rationale
 - `.github/workflows/frontend-ci.yml` — build-check gate on PRs to master; passes dummy `VITE_API_BASE_URL` so build doesn't fail on missing env var
@@ -813,8 +821,8 @@ For every task, follow this protocol. Do not skip ahead.
 
 I am a learner, not an experienced engineer. I will TYPE the
 backend/ML code myself, but I need you to provide it. The learning
-happens through (a) understanding before typing, (b) active prediction
-during typing, and (c) defending after typing.
+happens through understanding before typing and asking questions
+during typing.
 
 FRONTEND FILES RULE: I do NOT type frontend files. For any file
 under frontend/ (components, hooks, styles, config), Claude Code
@@ -834,24 +842,7 @@ Produce a 1-page brief covering:
   - For ML/data-science tasks: the underlying math/statistics
     in plain language, with at least one worked numerical example
 
-
-
-  - Data-science / ML tasks (any task in ml/, risk_model.py,
-    route_scorer.py): questions must be DATA SCIENCE focused —
-    statistics, model behaviour, bias/variance, evaluation
-    metrics, feature engineering, data quality, edge cases in
-    the math
-  - Infra / deployment tasks (Phase 0, infra/, .github/workflows/):
-    MLOps and systems questions — CI/CD, containers, secrets,
-    scaling, observability, cost
-  - Backend API tasks (routers, services not in ML pipeline):
-    a mix — API design, error handling, caching, plus DS
-    questions about WHY the API shape serves the model
-
-Wait for my answers (I reply with the letter, e.g. "B"). Do not
-proceed until I've answered all five. If an answer is wrong, tell
-me why and ask me to try again before moving on. Do not accept
-silence — give me a hint if I'm stuck.
+Then proceed directly to Step 2. No MCQs, no questions to answer.
 
 ---
 
@@ -865,19 +856,13 @@ long), but in a specific format:
     this chunk does and WHY it's structured this way
   - Use rich inline comments. Every non-obvious line gets a
     "# WHY: ..." comment, not just "# WHAT: ..."
-    "Before I show the next chunk — what happens if [edge case]?"
-  - Wait for my answer (the letter). Then show the next chunk
-    and tell me whether I was right and why.
 
-This is non-negotiable: do NOT dump the full file at once. The
-prediction-pause is the entire point — it keeps me from
-transcribing on autopilot.
+Do NOT dump the full file at once.
 
 I will type the backend/ML code myself in my IDE. If I have
 questions about a specific line, I'll ask, and you explain — but
 don't volunteer line-by-line explanation beyond your inline
 comments unless I ask.
-
 
 ---
 
@@ -887,9 +872,5 @@ PROTOCOL REMINDERS
     of this protocol and ask me to confirm I want to break it.
     I might have a real reason (debugging an urgent issue) but
     you should make me state it.
-  - If I'm answering MCQs correctly with no effort, raise the
-    difficulty. Easy quizzes teach nothing.
-  - At the start of every session, ask me what I remember from
-    the last "learning_log.md" entry. Spaced repetition matters.
-  - Once a week (Sunday), pick a random completed task and
-    quiz me cold on it. If I've forgotten, we revisit.
+  - No MCQs, no prediction pauses, no spaced repetition checks.
+    Just concept brief → code chunks → I type.

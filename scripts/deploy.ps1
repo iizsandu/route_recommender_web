@@ -26,7 +26,8 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "Deployed. Verifying health..."
     Start-Sleep -Seconds 5
-    curl -s "https://$fqdn/health"
+    # WHY: curl.exe (not curl) — in PowerShell, 'curl' is an alias for Invoke-WebRequest
+    curl.exe -s "https://$fqdn/health"
 } else {
     Write-Host "Deploy failed. Check 'az containerapp logs show --name $APP --resource-group $RG --follow'"
 }
