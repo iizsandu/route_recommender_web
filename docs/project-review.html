@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crime-Aware Route Recommender — Project Review</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --primary: #6366f1; --primary-dark: #4f46e5; --primary-light: #ede9fe;
+  --success: #22c55e; --success-light: #dcfce7;
+  --warning: #f59e0b; --warning-light: #fef3c7;
+  --danger: #ef4444;  --danger-light: #fee2e2;
+  --info: #06b6d4;    --info-light: #cffafe;
+  --bg: #f8fafc; --surface: #ffffff; --surface2: #f1f5f9;
+  --border: #e2e8f0; --text: #0f172a; --text-muted: #64748b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+
+/* ── Header ───────────────────────────────────────────────── */
+.header {
+  background: linear-gradient(135deg, #4338ca 0%, #7c3aed 60%, #a855f7 100%);
+  color: white; padding: 36px 56px;
+  display: flex; justify-content: space-between; align-items: flex-start;
+}
+.header-title { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+.header-sub { font-size: 14px; opacity: 0.8; margin-top: 6px; max-width: 560px; }
+.header-meta { text-align: right; font-size: 12px; opacity: 0.75; margin-top: 10px; }
+.live-badge {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 20px; padding: 6px 14px; font-size: 12px; font-weight: 600; margin-bottom: 8px;
+}
+.pulse { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+
+/* ── Tabs ─────────────────────────────────────────────────── */
+.tabs {
+  background: var(--surface); border-bottom: 2px solid var(--border);
+  display: flex; padding: 0 56px; position: sticky; top: 0; z-index: 100;
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+.tab-btn {
+  padding: 16px 22px; border: none; background: none; cursor: pointer;
+  font-size: 14px; font-weight: 500; color: var(--text-muted);
+  border-bottom: 3px solid transparent; margin-bottom: -2px;
+  transition: all .2s; font-family: 'Inter', sans-serif; white-space: nowrap;
+}
+.tab-btn:hover { color: var(--primary); }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+/* ── Content ──────────────────────────────────────────────── */
+.tab-pane { display: none; padding: 44px 56px 60px; max-width: 1100px; margin: 0 auto; }
+.tab-pane.active { display: block; animation: fadeIn .3s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+/* ── Cards ────────────────────────────────────────────────── */
+.card {
+  background: var(--surface); border-radius: 14px;
+  border: 1px solid var(--border); padding: 28px; margin-bottom: 24px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.04);
+}
+.card-title { font-size: 15px; font-weight: 700; margin-bottom: 18px; display: flex; align-items: center; gap: 9px; color: var(--text); }
+.card-title .icon { font-size: 18px; }
+
+/* ── Grids ────────────────────────────────────────────────── */
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+.g4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
+
+/* ── Stat cards ───────────────────────────────────────────── */
+.stat { background: var(--surface); border-radius: 14px; border: 1px solid var(--border); padding: 24px 20px; text-align: center; }
+.stat-val { font-size: 38px; font-weight: 800; color: var(--primary); line-height: 1; }
+.stat-lbl { font-size: 12px; color: var(--text-muted); margin-top: 6px; font-weight: 500; text-transform: uppercase; letter-spacing: .5px; }
+
+/* ── Tags ─────────────────────────────────────────────────── */
+.tag { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; margin: 3px; }
+.t-p { background: var(--primary-light); color: #5b21b6; }
+.t-s { background: var(--success-light); color: #14532d; }
+.t-w { background: var(--warning-light); color: #78350f; }
+.t-d { background: var(--danger-light);  color: #7f1d1d; }
+.t-i { background: var(--info-light);    color: #0e4f5f; }
+.t-g { background: var(--surface2);      color: #475569; }
+
+/* ── Metric bars ──────────────────────────────────────────── */
+.mbar-wrap { margin-bottom: 14px; }
+.mbar-hdr { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+.mbar-name { font-weight: 500; }
+.mbar-val { font-weight: 700; }
+.mbar-bg { background: var(--surface2); border-radius: 6px; height: 11px; overflow: hidden; }
+.mbar { height: 100%; border-radius: 6px; transition: width 1.2s cubic-bezier(.4,0,.2,1); }
+.b-primary { background: linear-gradient(90deg,#818cf8,#6366f1); }
+.b-success { background: linear-gradient(90deg,#4ade80,#22c55e); }
+.b-warning { background: linear-gradient(90deg,#fbbf24,#f59e0b); }
+.b-danger  { background: linear-gradient(90deg,#f87171,#ef4444); }
+.b-gray    { background: linear-gradient(90deg,#94a3b8,#64748b); }
+
+/* ── Code ─────────────────────────────────────────────────── */
+.code { font-family:'Fira Code',monospace; background:#1e293b; color:#e2e8f0; padding:16px 20px; border-radius:10px; font-size:12.5px; line-height:1.8; overflow-x:auto; }
+.code .cm { color:#94a3b8; } .code .kw { color:#a78bfa; } .code .str { color:#86efac; }
+
+/* ── URL pills ────────────────────────────────────────────── */
+.url-row { display:flex; align-items:center; gap:10px; background:#f0fdf4; border:1px solid #86efac; border-radius:9px; padding:11px 16px; margin-bottom:8px; }
+.url-row .label { font-size:11px; font-weight:700; text-transform:uppercase; color:#166534; min-width:100px; }
+.url-row a { font-family:'Fira Code',monospace; font-size:12px; color:#15803d; text-decoration:none; word-break:break-all; }
+.url-row a:hover { text-decoration:underline; }
+
+/* ── Step flow ────────────────────────────────────────────── */
+.step { display:flex; align-items:flex-start; gap:14px; margin-bottom:12px; }
+.step-num { min-width:28px; height:28px; border-radius:50%; background:var(--primary); color:white; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; margin-top:2px; }
+.step-body { font-size:14px; }
+.step-title { font-weight:600; }
+.step-desc { color:var(--text-muted); font-size:13px; margin-top:2px; }
+.step-arrow { width:2px; height:14px; background:var(--border); margin-left:13px; margin-bottom:2px; }
+
+/* ── Tables ───────────────────────────────────────────────── */
+.tbl { width:100%; border-collapse:collapse; font-size:13px; }
+.tbl th { background:var(--surface2); padding:10px 14px; text-align:left; font-weight:600; border-bottom:2px solid var(--border); color:var(--text); }
+.tbl td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text-muted); }
+.tbl tr:last-child td { border-bottom:none; }
+.tbl tr:hover td { background:var(--surface2); }
+.tbl .hi { color:var(--primary); font-weight:700; }
+.tbl .good { color:var(--success); font-weight:700; }
+.tbl .warn { color:var(--warning); font-weight:700; }
+
+/* ── Callout ──────────────────────────────────────────────── */
+.callout { border-left:4px solid var(--primary); background:#f5f3ff; padding:14px 18px; border-radius:0 10px 10px 0; margin-bottom:16px; }
+.callout.green { border-color:var(--success); background:#f0fdf4; }
+.callout.yellow { border-color:var(--warning); background:#fffbeb; }
+.callout p { font-size:13.5px; color:var(--text); margin:0; line-height:1.6; }
+.callout strong { color:var(--primary); }
+.callout.green strong { color:#166534; }
+.callout.yellow strong { color:#92400e; }
+
+/* ── Section heading ──────────────────────────────────────── */
+h2 { font-size:22px; font-weight:700; margin-bottom:6px; }
+h3 { font-size:15px; font-weight:700; margin-bottom:12px; color:var(--text); }
+.section-sub { font-size:14px; color:var(--text-muted); margin-bottom:24px; }
+hr { border:none; border-top:2px solid var(--border); margin:32px 0; }
+p { font-size:14px; color:var(--text-muted); line-height:1.75; margin-bottom:10px; }
+
+/* ── Infra pill ───────────────────────────────────────────── */
+.infra-item { display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--border); }
+.infra-item:last-child { border:none; }
+.infra-icon { font-size:22px; min-width:32px; text-align:center; }
+.infra-name { font-weight:600; font-size:14px; }
+.infra-desc { font-size:12px; color:var(--text-muted); margin-top:2px; }
+
+/* ── Weight bar inline ────────────────────────────────────── */
+.wb { display:inline-block; height:8px; border-radius:4px; vertical-align:middle; margin-left:6px; }
+
+/* ── Diagram ──────────────────────────────────────────────── */
+.diagram-wrap { background:var(--surface); border-radius:14px; border:1px solid var(--border); padding:40px 30px; overflow-x:auto; text-align:center; }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ HEADER ════════════════════ -->
+<div class="header">
+  <div>
+    <div class="header-title">🛡️ Crime-Aware Route Recommender — Delhi NCR</div>
+    <div class="header-sub">Safest route recommendations for female commuters using KDE risk modelling, LightGBM ensemble, and real-time crime surface visualisation.</div>
+    <div class="header-meta">Reviewed by Sandip Shaw &nbsp;·&nbsp; May 2026 &nbsp;·&nbsp; All phases complete</div>
+  </div>
+  <div style="text-align:right">
+    <div class="live-badge"><span class="pulse"></span> Live on Vercel</div><br>
+    <div class="live-badge"><span class="pulse"></span> Backend on Azure</div>
+  </div>
+</div>
+
+<!-- ════════════════════ TABS ════════════════════ -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('overview',this)">🏠 Overview</button>
+  <button class="tab-btn" onclick="switchTab('deployment',this)">🚀 Deployment</button>
+  <button class="tab-btn" onclick="switchTab('ml',this)">🧠 Predictive Analysis</button>
+  <button class="tab-btn" onclick="switchTab('methodology',this)">🔄 Methodology</button>
+</div>
+
+<!-- ════════════ TAB 1: OVERVIEW ════════════ -->
+<div id="tab-overview" class="tab-pane active">
+  <h2>Project Overview</h2>
+  <p class="section-sub">A full-stack ML application that recommends the safest driving or walking route between two points in Delhi-NCR, prioritising crimes most dangerous to female commuters.</p>
+
+  <div class="g4" style="margin-bottom:28px">
+    <div class="stat"><div class="stat-val">8,797</div><div class="stat-lbl">Crime Records</div></div>
+    <div class="stat"><div class="stat-val">8</div><div class="stat-lbl">KDE Models</div></div>
+    <div class="stat"><div class="stat-val">0.76</div><div class="stat-lbl">KDE PR-AUC</div></div>
+    <div class="stat"><div class="stat-val">2</div><div class="stat-lbl">ML Model Tiers</div></div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-title"><span class="icon">🎯</span> Mission</div>
+      <p>For every route between A and B, surface the option with the <strong style="color:var(--text)">lowest aggregate crime exposure</strong> — not just the fastest. Weighted heavily towards crimes relevant to female physical safety: sexual violence, kidnapping, robbery, and assault.</p>
+      <div class="callout green" style="margin-top:14px">
+        <p><strong>Target user:</strong> Female commuters in Delhi-NCR who want to make informed, safer routing decisions based on historical crime density.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🔗</span> Live URLs</div>
+      <div class="url-row"><span class="label">Frontend</span><a href="https://route-recommender-web.vercel.app" target="_blank">route-recommender-web.vercel.app</a></div>
+      <div class="url-row"><span class="label">Backend</span><a href="https://route-recommender-backend.whitecoast-8c771146.eastasia.azurecontainerapps.io/health" target="_blank">route-recommender-backend …/health</a></div>
+      <div class="url-row"><span class="label">API Docs</span><a href="https://route-recommender-backend.whitecoast-8c771146.eastasia.azurecontainerapps.io/docs" target="_blank">route-recommender-backend …/docs</a></div>
+      <div class="url-row"><span class="label">Metrics</span><a href="https://route-recommender-backend.whitecoast-8c771146.eastasia.azurecontainerapps.io/metrics" target="_blank">route-recommender-backend …/metrics</a></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">⚙️</span> Tech Stack</div>
+    <div class="g3">
+      <div>
+        <h3>Backend</h3>
+        <span class="tag t-p">Python 3.11</span><span class="tag t-p">FastAPI</span>
+        <span class="tag t-p">Pydantic v2</span><span class="tag t-p">uvicorn</span>
+        <span class="tag t-g">scipy KDE</span><span class="tag t-g">LightGBM</span>
+        <span class="tag t-g">MLflow 2.11</span><span class="tag t-g">structlog</span>
+        <span class="tag t-g">slowapi</span><span class="tag t-g">Prometheus</span>
+      </div>
+      <div>
+        <h3>Frontend</h3>
+        <span class="tag t-i">React 18</span><span class="tag t-i">Vite 5</span>
+        <span class="tag t-i">MapLibre GL JS</span><span class="tag t-i">react-map-gl</span>
+        <span class="tag t-i">Axios</span><span class="tag t-i">Tailwind CSS</span>
+        <span class="tag t-i">Sentry</span>
+      </div>
+      <div>
+        <h3>Infrastructure</h3>
+        <span class="tag t-s">Azure Container Apps</span>
+        <span class="tag t-s">Vercel</span>
+        <span class="tag t-s">GitHub Actions CI/CD</span>
+        <span class="tag t-s">GHCR (Docker registry)</span>
+        <span class="tag t-s">Azure Cosmos DB</span>
+        <span class="tag t-s">MapTiler</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">✅</span> Phases Completed</div>
+    <div class="g2">
+      <div>
+        <div class="step"><div class="step-num">✓</div><div class="step-body"><div class="step-title">Phase 0 — Bootstrap</div><div class="step-desc">Repo, Docker, CI skeleton, Azure + Vercel deployment stubs</div></div></div>
+        <div class="step"><div class="step-num">✓</div><div class="step-body"><div class="step-title">Phase 1 — Risk Surface MVP</div><div class="step-desc">KDE training pipeline, risk scoring API, ORS routing integration</div></div></div>
+        <div class="step"><div class="step-num">✓</div><div class="step-body"><div class="step-title">Phase 2 — Frontend MVP</div><div class="step-desc">MapLibre map, route form, risk heatmap overlay, disclaimer modal</div></div></div>
+      </div>
+      <div>
+        <div class="step"><div class="step-num">✓</div><div class="step-body"><div class="step-title">Phase 3 — MLOps Foundation</div><div class="step-desc">MLflow tracking, time-based holdout evaluation, weekly retrain cron</div></div></div>
+        <div class="step"><div class="step-num">✓</div><div class="step-body"><div class="step-title">Phase 4 — LightGBM Ensemble</div><div class="step-desc">H3 cell features, LightGBM training, 70/30 KDE+LGB blend</div></div></div>
+        <div class="step"><div class="step-num">✓</div><div class="step-body"><div class="step-title">Phase 5 — Productionisation</div><div class="step-desc">Rate limiting, Prometheus metrics, Sentry, docs, heatmap PNG API</div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ TAB 2: DEPLOYMENT ════════════ -->
+<div id="tab-deployment" class="tab-pane">
+  <h2>Deployment Architecture</h2>
+  <p class="section-sub">Full CI/CD pipeline from code push to live production. Frontend on Vercel, backend on Azure Container Apps, Docker images on GHCR.</p>
+
+  <div class="g2" style="margin-bottom:24px">
+    <div class="card">
+      <div class="card-title"><span class="icon">🌐</span> Frontend — Vercel</div>
+      <div class="infra-item"><div class="infra-icon">▲</div><div><div class="infra-name">Vercel Free Tier</div><div class="infra-desc">Auto-deploys on every push to <code>master</code> via GitHub integration</div></div></div>
+      <div class="infra-item"><div class="infra-icon">📦</div><div><div class="infra-name">Vite Build (React 18)</div><div class="infra-desc">Static bundle; API calls proxied in dev, direct HTTPS in prod</div></div></div>
+      <div class="infra-item"><div class="infra-icon">🔑</div><div><div class="infra-name">Environment Variables</div><div class="infra-desc"><code>VITE_API_BASE_URL</code> = Azure backend URL &nbsp;·&nbsp; <code>VITE_MAPTILER_KEY</code></div></div></div>
+      <div class="infra-item"><div class="infra-icon">🛡️</div><div><div class="infra-name">Sentry (Error Tracking)</div><div class="infra-desc">10% trace sampling; captures JS exceptions in production</div></div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">☁️</span> Backend — Azure Container Apps</div>
+      <div class="infra-item"><div class="infra-icon">🐳</div><div><div class="infra-name">Docker Image</div><div class="infra-desc">Python 3.11-slim; KDE + LGB model artifacts baked into image at build time</div></div></div>
+      <div class="infra-item"><div class="infra-icon">📡</div><div><div class="infra-name">Scale-to-Zero</div><div class="infra-desc">min=0 replicas, max=2; free-tier consumption plan (~180K vCPU-s/month free)</div></div></div>
+      <div class="infra-item"><div class="infra-icon">🔒</div><div><div class="infra-name">Rate Limiting</div><div class="infra-desc">60 req/min per IP via slowapi; returns 429 + Retry-After header</div></div></div>
+      <div class="infra-item"><div class="infra-icon">📈</div><div><div class="infra-name">Prometheus Metrics</div><div class="infra-desc"><code>GET /metrics</code> — routes_recommended_total, model_inference_seconds</div></div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">🔄</span> CI/CD Pipeline</div>
+    <div class="g2">
+      <div>
+        <h3>Backend Deploy Flow</h3>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">1</div><div class="step-body"><div class="step-title">Code push to <code>master</code></div><div class="step-desc">Triggers <code>backend-deploy.yml</code> GitHub Action</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">2</div><div class="step-body"><div class="step-title">GitHub Actions — Build image</div><div class="step-desc">Docker build context = repo root; copies <code>ml/artifacts/</code> (model pkl + heatmap PNG)</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">3</div><div class="step-body"><div class="step-title">Push to GHCR</div><div class="step-desc"><code>ghcr.io/iizsandu/route-recommender-backend:&lt;sha&gt;</code></div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">4</div><div class="step-body"><div class="step-title">Smoke test <code>/health</code></div><div class="step-desc">Container started; 200 OK required before marking success</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">5</div><div class="step-body"><div class="step-title">Run <code>deploy.ps1</code> locally</div><div class="step-desc"><code>az containerapp update --image …</code> — Azure pulls new image</div></div></div>
+      </div>
+      <div>
+        <h3>Frontend Deploy Flow</h3>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">1</div><div class="step-body"><div class="step-title">Code push to <code>master</code></div><div class="step-desc">Vercel GitHub integration auto-detects change</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">2</div><div class="step-body"><div class="step-title">Vercel build</div><div class="step-desc"><code>vite build</code> with production env vars injected</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">3</div><div class="step-body"><div class="step-title">Static deploy to CDN</div><div class="step-desc">Global edge network; average TTFB &lt; 100ms</div></div></div>
+        <div class="step-arrow"></div>
+        <h3 style="margin-top:16px">Weekly Model Retrain</h3>
+        <div class="step"><div class="step-num">☀</div><div class="step-body"><div class="step-title">Sunday 02:00 IST cron</div><div class="step-desc"><code>retrain-weekly.yml</code>: ingest → validate → train KDE → train LGB → evaluate → promote → regenerate heatmap</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">🔐</span> Security &amp; Observability</div>
+    <div class="g3">
+      <div>
+        <h3>CORS Policy</h3>
+        <p><code>ALLOWED_ORIGINS=*</code> — open for portfolio demo. Production hardening: restrict to Vercel domain + local.</p>
+      </div>
+      <div>
+        <h3>Structured Logging</h3>
+        <p>Every request logged with <strong>request_id</strong>, <strong>duration_ms</strong>, path, method, status via <code>structlog</code> JSON format in Azure.</p>
+      </div>
+      <div>
+        <h3>Request Tracing</h3>
+        <p><code>X-Request-ID</code> header injected by middleware. Correlates frontend errors (Sentry) with backend logs.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">⚙️</span> Backend Environment Variables (Azure)</div>
+    <table class="tbl">
+      <thead><tr><th>Variable</th><th>Value</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>COSMOS_CONNECTION_STRING</code></td><td><span class="tag t-d">Secret</span></td><td>Read-only access to crime records Cosmos DB</td></tr>
+        <tr><td><code>ORS_API_KEY</code></td><td><span class="tag t-d">Secret</span></td><td>OpenRouteService directions + geocoding API</td></tr>
+        <tr><td><code>KDE_ARTIFACTS_DIR</code></td><td><code>ml/artifacts</code></td><td>Directory containing per-category KDE pkl files</td></tr>
+        <tr><td><code>HEATMAP_IMAGE_PATH</code></td><td><code>ml/artifacts/heatmap.png</code></td><td>Pre-computed risk heatmap PNG served at <code>/risk/heatmap-image</code></td></tr>
+        <tr><td><code>USE_LIGHTGBM</code></td><td><code>True</code></td><td>Enable 70% KDE + 30% LightGBM ensemble scoring</td></tr>
+        <tr><td><code>BAND_LOW_THRESHOLD</code></td><td><code>0.0713</code></td><td>City-wide p33 — Low/Medium risk boundary</td></tr>
+        <tr><td><code>BAND_HIGH_THRESHOLD</code></td><td><code>0.9142</code></td><td>City-wide p66 — Medium/High risk boundary</td></tr>
+        <tr><td><code>LOG_FORMAT</code></td><td><code>json</code></td><td>Structured JSON logs for Azure Log Analytics</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout green">
+    <p><strong>Cost:</strong> Frontend (Vercel free) + Backend (Azure Container Apps free tier ~₹0/month at demo traffic) + Cosmos DB (read-only from sister project). Actual additional spend: ₹0–200/month. Well within ₹500/month budget.</p>
+  </div>
+</div>
+
+<!-- ════════════ TAB 3: ML ════════════ -->
+<div id="tab-ml" class="tab-pane">
+  <h2>Predictive Analysis</h2>
+  <p class="section-sub">Two-tier ML pipeline: a KDE continuous risk surface as the primary model, blended with a LightGBM cell-based classifier as an ensemble second opinion.</p>
+
+  <div class="callout">
+    <p><strong>Why PR-AUC, not accuracy?</strong> Crime is a rare-event problem — most (lat, lng) grid cells have zero crimes in any given week. A model that always predicts "no crime" gets 99%+ accuracy trivially. PR-AUC measures the tradeoff between precision and recall specifically for the positive (crime) class, making it the honest metric here.</p>
+  </div>
+
+  <div class="callout yellow" style="margin-top:-8px">
+    <p><strong>Time-based holdout:</strong> Train set = data before April 16 2026 (7,862 records). Test set = April 16 – May 16 2026 (935 records). No data leakage — the model never sees future crime locations during training.</p>
+  </div>
+
+  <hr>
+  <h2>Tier 1 — KDE Risk Surface (Primary)</h2>
+  <p class="section-sub">Kernel Density Estimation fits a continuous, smooth probability surface over crime event coordinates. No grid cells needed — any (lat, lng) can be scored instantly.</p>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-title"><span class="icon">📐</span> How KDE Works</div>
+      <p>Each crime record is a point on the map. KDE places a Gaussian "bump" of probability at each point. The bumps sum to create a continuous surface — denser crime clusters produce higher density values.</p>
+      <p><strong style="color:var(--text)">Bandwidth = 0.015°</strong> (~1.7 km) — tighter than Silverman's rule to capture neighbourhood-level clustering rather than city-wide blur.</p>
+      <p><strong style="color:var(--text)">Recency decay</strong> — each crime contributes weight <code>exp(−age_days / 90)</code>, giving 83% of total weight to records ≤ 90 days old.</p>
+      <div class="code" style="margin-top:12px">
+route_risk = Σ<sub>waypoints</sub> kde(lat, lng)
+           × female_weight(crime_type)
+           × time_modifier(hour)
+           × dwell_seconds
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">⚖️</span> Female-Focused Crime Weights</div>
+      <table class="tbl">
+        <thead><tr><th>Crime Category</th><th>Records</th><th>Weight</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>Sexual Violence</td><td>566</td><td class="hi">3.0×</td><td><div class="wb b-danger" style="width:90px"></div></td></tr>
+          <tr><td>Kidnapping</td><td>172</td><td class="hi">2.5×</td><td><div class="wb b-danger" style="width:75px"></div></td></tr>
+          <tr><td>Robbery</td><td>827</td><td class="warn">2.0×</td><td><div class="wb b-warning" style="width:60px"></div></td></tr>
+          <tr><td>Murder</td><td>1,589</td><td class="warn">1.5×</td><td><div class="wb b-warning" style="width:45px"></div></td></tr>
+          <tr><td>Assault</td><td>729</td><td class="warn">1.5×</td><td><div class="wb b-warning" style="width:45px"></div></td></tr>
+          <tr><td>Terrorism / Riot</td><td>123</td><td>1.0×</td><td><div class="wb b-gray" style="width:30px"></div></td></tr>
+          <tr><td>Theft / Burglary</td><td>481</td><td>0.7×</td><td><div class="wb b-gray" style="width:21px"></div></td></tr>
+          <tr><td>Drug Trafficking</td><td>164</td><td>0.5×</td><td><div class="wb b-gray" style="width:15px"></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">⏰</span> Time-of-Day Multiplier (applied at query time)</div>
+    <div class="g4">
+      <div style="text-align:center;padding:16px;background:#fee2e2;border-radius:10px">
+        <div style="font-size:28px;font-weight:800;color:#dc2626">2.5×</div>
+        <div style="font-size:12px;color:#7f1d1d;margin-top:4px;font-weight:600">Night<br>22:00 – 05:00</div>
+      </div>
+      <div style="text-align:center;padding:16px;background:#fef3c7;border-radius:10px">
+        <div style="font-size:28px;font-weight:800;color:#d97706">1.5×</div>
+        <div style="font-size:12px;color:#78350f;margin-top:4px;font-weight:600">Evening<br>18:00 – 22:00</div>
+      </div>
+      <div style="text-align:center;padding:16px;background:#f0fdf4;border-radius:10px">
+        <div style="font-size:28px;font-weight:800;color:#16a34a">1.0×</div>
+        <div style="font-size:12px;color:#14532d;margin-top:4px;font-weight:600">Morning<br>05:00 – 09:00</div>
+      </div>
+      <div style="text-align:center;padding:16px;background:#eff6ff;border-radius:10px">
+        <div style="font-size:28px;font-weight:800;color:#2563eb">0.7×</div>
+        <div style="font-size:12px;color:#1e3a8a;margin-top:4px;font-weight:600">Daytime<br>09:00 – 18:00</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">📊</span> KDE Model Evaluation — 30-Day Holdout</div>
+    <div class="g2">
+      <div>
+        <div class="mbar-wrap">
+          <div class="mbar-hdr"><span class="mbar-name">KDE PR-AUC</span><span class="mbar-val" style="color:#6366f1">0.7614</span></div>
+          <div class="mbar-bg"><div class="mbar b-primary" style="width:76.14%"></div></div>
+        </div>
+        <div class="mbar-wrap">
+          <div class="mbar-hdr"><span class="mbar-name">KDE Recall @ Top-10% Cells</span><span class="mbar-val" style="color:#6366f1">0.7385</span></div>
+          <div class="mbar-bg"><div class="mbar b-primary" style="width:73.85%"></div></div>
+        </div>
+        <div class="mbar-wrap">
+          <div class="mbar-hdr"><span class="mbar-name">Naive Baseline PR-AUC</span><span class="mbar-val" style="color:#f59e0b">0.7831</span></div>
+          <div class="mbar-bg"><div class="mbar b-warning" style="width:78.31%"></div></div>
+        </div>
+        <div class="mbar-wrap">
+          <div class="mbar-hdr"><span class="mbar-name">Random Baseline PR-AUC</span><span class="mbar-val" style="color:#94a3b8">0.1040</span></div>
+          <div class="mbar-bg"><div class="mbar b-gray" style="width:10.4%"></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="callout green">
+          <p><strong>7.3× better than random</strong> — KDE PR-AUC of 0.76 vs random baseline of 0.10. The model correctly identifies high-risk corridors far above chance.</p>
+        </div>
+        <div class="callout yellow">
+          <p><strong>Naive baseline caveat:</strong> The naive model (always predict recent hotspot) scores 0.78 because ~80% of crime is recent and geographically concentrated. KDE nearly matches it while being a smooth continuous surface rather than a hard cluster. The gap closes further when time-of-day multiplier improves with more data.</p>
+        </div>
+        <p style="font-size:13px"><strong>Train: 7,862 records</strong> &nbsp;·&nbsp; <strong>Test: 935 records</strong> &nbsp;·&nbsp; Cutoff: April 16 2026</p>
+      </div>
+    </div>
+  </div>
+
+  <hr>
+  <h2>Tier 2 — LightGBM Cell Classifier (Ensemble)</h2>
+  <p class="section-sub">A gradient-boosted tree model predicting crime probability per H3 hexagonal grid cell per week. Blended 30% with KDE to improve precision in repeat-crime areas.</p>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-title"><span class="icon">🔷</span> H3 Hexagonal Grid Features</div>
+      <p>The city is divided into H3 resolution-7 cells (~5 km diameter). For each cell × week combination, three rolling density features are computed:</p>
+      <table class="tbl" style="margin-top:12px">
+        <thead><tr><th>Feature</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>cell_density_30d</code></td><td>Crime count in this cell over last 30 days</td></tr>
+          <tr><td><code>cell_density_90d</code></td><td>Crime count in this cell over last 90 days</td></tr>
+          <tr><td><code>neighbour_density_30d</code></td><td>Crime count in 6 adjacent H3 cells (spillover signal)</td></tr>
+          <tr><td><code>week_of_year</code></td><td>Seasonal pattern signal</td></tr>
+          <tr><td><code>cell_id (encoded)</code></td><td>Location embedding via label encoder</td></tr>
+        </tbody>
+      </table>
+      <div class="callout" style="margin-top:14px">
+        <p><strong>Label leakage prevention:</strong> Rolling features use <code>shift(1)</code> — the model sees last week's density to predict this week's crime. No future data seen.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">📊</span> LightGBM Model Results</div>
+      <div class="mbar-wrap">
+        <div class="mbar-hdr"><span class="mbar-name">Global model — PR-AUC</span><span class="mbar-val" style="color:#6366f1">0.3462</span></div>
+        <div class="mbar-bg"><div class="mbar b-primary" style="width:34.62%"></div></div>
+      </div>
+      <div class="mbar-wrap">
+        <div class="mbar-hdr"><span class="mbar-name">Assault — Recall @10%</span><span class="mbar-val" style="color:#22c55e">0.7143</span></div>
+        <div class="mbar-bg"><div class="mbar b-success" style="width:71.43%"></div></div>
+      </div>
+      <div class="mbar-wrap">
+        <div class="mbar-hdr"><span class="mbar-name">Sexual Violence — Recall @10%</span><span class="mbar-val" style="color:#f59e0b">0.4762</span></div>
+        <div class="mbar-bg"><div class="mbar b-warning" style="width:47.62%"></div></div>
+      </div>
+      <div class="mbar-wrap">
+        <div class="mbar-hdr"><span class="mbar-name">Robbery — Recall @10%</span><span class="mbar-val" style="color:#f59e0b">0.3333</span></div>
+        <div class="mbar-bg"><div class="mbar b-warning" style="width:33.33%"></div></div>
+      </div>
+      <p style="font-size:12px;margin-top:12px">Low per-category PR-AUC is expected with sparse data (~170–830 events per category). The global model (0.35) is the primary LGB contribution. Per-category models improve recall for specific crime types.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">🔀</span> Ensemble Blending &amp; Risk Banding</div>
+    <div class="g2">
+      <div>
+        <h3>Score Formula</h3>
+        <div class="code">
+final_score = 0.70 × kde_score
+            + 0.30 × lgb_score
+
+band = "Low"    if score &lt; 0.0713  (city p33)
+band = "Medium" if score &lt; 0.9142  (city p66)
+band = "High"   if score ≥ 0.9142
+        </div>
+        <p style="margin-top:12px">Banding thresholds are city-wide percentiles (p33 / p66) calibrated from 400 random Delhi points. Raw scores are never shown to users — only Low / Medium / High bands.</p>
+      </div>
+      <div>
+        <h3>Why 3 Bands, Not Raw Scores?</h3>
+        <div class="step"><div class="step-num">⚖</div><div class="step-body"><div class="step-title">Legal — Defamation defence</div><div class="step-desc">Specific numbers about specific streets carry higher legal risk in India</div></div></div>
+        <div class="step"><div class="step-num">🎯</div><div class="step-body"><div class="step-title">UX — Users need decisions, not decimals</div><div class="step-desc">"This route is High risk" is more actionable than "score = 0.847"</div></div></div>
+        <div class="step"><div class="step-num">🔬</div><div class="step-body"><div class="step-title">Honest about model uncertainty</div><div class="step-desc">KDE on ~4,000 points cannot justify 4-decimal precision</div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ TAB 4: METHODOLOGY ════════════ -->
+<div id="tab-methodology" class="tab-pane">
+  <h2>End-to-End Methodology</h2>
+  <p class="section-sub">Complete data flow from Cosmos DB crime records through the ML pipeline into the live application.</p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 960 680" width="100%" style="max-width:960px;font-family:Inter,sans-serif">
+      <!-- Defs -->
+      <defs>
+        <marker id="arr" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+          <polygon points="0 0,10 3.5,0 7" fill="#94a3b8"/>
+        </marker>
+        <marker id="arr-p" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+          <polygon points="0 0,10 3.5,0 7" fill="#6366f1"/>
+        </marker>
+        <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.08"/></filter>
+      </defs>
+
+      <!-- ── ROW 0: Data Source ── -->
+      <rect x="360" y="20" width="240" height="64" rx="12" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="480" y="46" text-anchor="middle" font-size="13" font-weight="700" fill="#1e40af">☁️ Azure Cosmos DB</text>
+      <text x="480" y="63" text-anchor="middle" font-size="11" fill="#1d4ed8">structured_crimes — ~8,797 records</text>
+      <text x="480" y="75" text-anchor="middle" font-size="10" fill="#3b82f6">Read-only · Sister repo writes here</text>
+
+      <!-- arrow down -->
+      <line x1="480" y1="84" x2="480" y2="110" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- ── ROW 1: Ingest + Validate ── -->
+      <rect x="220" y="114" width="200" height="60" rx="10" fill="#f3e8ff" stroke="#a855f7" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="320" y="138" text-anchor="middle" font-size="12" font-weight="700" fill="#6b21a8">ml/data/ingest.py</text>
+      <text x="320" y="153" text-anchor="middle" font-size="10" fill="#7c3aed">Fetch · Filter Delhi-NCR</text>
+      <text x="320" y="165" text-anchor="middle" font-size="10" fill="#7c3aed">Clean · Save Parquet snapshot</text>
+
+      <rect x="540" y="114" width="200" height="60" rx="10" fill="#fef9c3" stroke="#eab308" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="640" y="138" text-anchor="middle" font-size="12" font-weight="700" fill="#78350f">ml/data/validate.py</text>
+      <text x="640" y="153" text-anchor="middle" font-size="10" fill="#92400e">Great Expectations gates</text>
+      <text x="640" y="165" text-anchor="middle" font-size="10" fill="#92400e">Fail loudly if &gt;5% expectations broken</text>
+
+      <!-- Cosmos → ingest -->
+      <line x1="420" y1="84" x2="340" y2="114" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <!-- ingest → validate -->
+      <line x1="420" y1="144" x2="540" y2="144" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- arrow down from validate -->
+      <line x1="640" y1="174" x2="640" y2="200" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <!-- arrow down from ingest -->
+      <line x1="320" y1="174" x2="320" y2="200" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- ── ROW 2: Train KDE + Train LGB ── -->
+      <rect x="180" y="204" width="200" height="64" rx="10" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="280" y="228" text-anchor="middle" font-size="12" font-weight="700" fill="#14532d">ml/train_kde.py</text>
+      <text x="280" y="243" text-anchor="middle" font-size="10" fill="#166534">8 FixedBandwidthKDE models</text>
+      <text x="280" y="255" text-anchor="middle" font-size="10" fill="#166534">Recency decay · bw=0.015°</text>
+
+      <rect x="500" y="204" width="220" height="64" rx="10" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="610" y="228" text-anchor="middle" font-size="12" font-weight="700" fill="#14532d">ml/train_lightgbm.py</text>
+      <text x="610" y="243" text-anchor="middle" font-size="10" fill="#166534">H3 cell features · 4-week CV</text>
+      <text x="610" y="255" text-anchor="middle" font-size="10" fill="#166534">Global + 3 per-category models</text>
+
+      <!-- validate → train_kde -->
+      <line x1="540" y1="144" x2="300" y2="204" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <!-- validate → train_lgb -->
+      <line x1="640" y1="204" x2="640" y2="204" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="640" y1="174" x2="640" y2="204" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- arrows down from both trains -->
+      <line x1="280" y1="268" x2="280" y2="294" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="610" y1="268" x2="430" y2="294" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- ── ROW 3: Evaluate ── -->
+      <rect x="180" y="298" width="280" height="60" rx="10" fill="#fff7ed" stroke="#f97316" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="320" y="322" text-anchor="middle" font-size="12" font-weight="700" fill="#7c2d12">ml/evaluate.py</text>
+      <text x="320" y="337" text-anchor="middle" font-size="10" fill="#9a3412">30-day holdout · PR-AUC=0.76 · Recall@10%=0.74</text>
+      <text x="320" y="349" text-anchor="middle" font-size="10" fill="#9a3412">Logs to MLflow · sqlite:///ml/artifacts/mlruns.db</text>
+
+      <!-- Artifacts label -->
+      <rect x="520" y="304" width="190" height="48" rx="10" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="615" y="324" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">📦 ml/artifacts/</text>
+      <text x="615" y="338" text-anchor="middle" font-size="10" fill="#64748b">kde_*.pkl · lgb_*.pkl</text>
+      <text x="615" y="350" text-anchor="middle" font-size="10" fill="#64748b">heatmap.png · heatmap.geojson</text>
+
+      <!-- evaluate → promote -->
+      <line x1="320" y1="358" x2="320" y2="384" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- ── ROW 4: Promote ── -->
+      <rect x="180" y="388" width="280" height="54" rx="10" fill="#fce7f3" stroke="#ec4899" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="320" y="410" text-anchor="middle" font-size="12" font-weight="700" fill="#831843">ml/promote_model.py</text>
+      <text x="320" y="425" text-anchor="middle" font-size="10" fill="#9d174d">Gate: PR-AUC improvement ≥ 1pp</text>
+      <text x="320" y="437" text-anchor="middle" font-size="10" fill="#9d174d">Promotes to MLflow Production stage</text>
+
+      <!-- promote → mlflow -->
+      <line x1="320" y1="442" x2="320" y2="468" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- MLflow label -->
+      <rect x="180" y="472" width="280" height="48" rx="10" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="320" y="494" text-anchor="middle" font-size="12" font-weight="700" fill="#4c1d95">📊 MLflow Registry</text>
+      <text x="320" y="509" text-anchor="middle" font-size="10" fill="#5b21b6">kde_training · kde_evaluation · lightgbm_risk</text>
+
+      <!-- ── RIGHT: Production ── -->
+      <!-- ORS API box -->
+      <rect x="730" y="388" width="180" height="54" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="820" y="412" text-anchor="middle" font-size="12" font-weight="700" fill="#0c4a6e">🗺️ ORS API</text>
+      <text x="820" y="427" text-anchor="middle" font-size="10" fill="#075985">OpenRouteService</text>
+      <text x="820" y="439" text-anchor="middle" font-size="10" fill="#075985">3 alternative routes · 2K req/day free</text>
+
+      <!-- FastAPI Backend -->
+      <rect x="560" y="472" width="370" height="64" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="745" y="496" text-anchor="middle" font-size="12" font-weight="700" fill="#1e3a8a">⚡ FastAPI Backend</text>
+      <text x="745" y="511" text-anchor="middle" font-size="10" fill="#1e40af">Azure Container Apps · POST /routes/recommend</text>
+      <text x="745" y="523" text-anchor="middle" font-size="10" fill="#1e40af">GET /risk/heatmap-image · Rate limit 60/min · Prometheus</text>
+
+      <!-- MLflow → Backend (artifacts) -->
+      <line x1="460" y1="496" x2="560" y2="496" stroke="#6366f1" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arr-p)"/>
+      <text x="510" y="490" text-anchor="middle" font-size="10" fill="#6366f1">artifacts at startup</text>
+
+      <!-- ORS → Backend -->
+      <line x1="730" y1="420" x2="745" y2="472" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Artifacts → Backend -->
+      <line x1="615" y1="352" x2="745" y2="472" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)"/>
+
+      <!-- Backend → Frontend -->
+      <line x1="745" y1="536" x2="745" y2="562" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- React Frontend -->
+      <rect x="560" y="566" width="370" height="64" rx="10" fill="#cffafe" stroke="#06b6d4" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="745" y="592" text-anchor="middle" font-size="12" font-weight="700" fill="#0e4f5f">🗺️ React Frontend</text>
+      <text x="745" y="607" text-anchor="middle" font-size="10" fill="#0891b2">Vercel · MapLibre GL JS · Risk heatmap PNG overlay</text>
+      <text x="745" y="619" text-anchor="middle" font-size="10" fill="#0891b2">Low / Medium / High bands · Sentry error tracking</text>
+
+      <!-- Weekly cron badge -->
+      <rect x="20" y="204" width="148" height="54" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="5,3"/>
+      <text x="94" y="225" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">⏱ Weekly Cron</text>
+      <text x="94" y="239" text-anchor="middle" font-size="10" fill="#64748b">GitHub Actions</text>
+      <text x="94" y="251" text-anchor="middle" font-size="10" fill="#64748b">Sun 02:00 IST</text>
+      <line x1="168" y1="231" x2="180" y2="231" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arr)"/>
+    </svg>
+  </div>
+
+  <div class="g3" style="margin-top:28px">
+    <div class="callout">
+      <p><strong>Sister repo</strong> runs LLM extraction on news articles and writes structured crime records to Cosmos DB. This repo reads those records — no ETL, no duplication.</p>
+    </div>
+    <div class="callout green">
+      <p><strong>Model artifacts baked into Docker image</strong> at build time — no external storage needed at runtime. Weekly retrain rebuilds and pushes a new image.</p>
+    </div>
+    <div class="callout yellow">
+      <p><strong>Hot reload</strong> — backend checks MLflow registry hourly and swaps the in-memory model atomically when a new Production version is promoted.</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:8px">
+    <div class="card-title"><span class="icon">📋</span> Key Design Decisions</div>
+    <table class="tbl">
+      <thead><tr><th>Decision</th><th>Choice</th><th>Rejected Alternative</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td>Risk surface</td><td class="good">KDE (continuous)</td><td>H3 cell grid</td><td>4K records → most H3 cells empty; KDE handles sparsity gracefully</td></tr>
+        <tr><td>Route scoring</td><td class="good">Waypoint sampling every 100m</td><td>Bounding-box centroid</td><td>Route shape matters — a safe area in the middle doesn't cancel a dangerous corridor at either end</td></tr>
+        <tr><td>Display</td><td class="good">3-band (Low/Med/High)</td><td>Raw decimal scores</td><td>Legal + UX + honesty about model uncertainty</td></tr>
+        <tr><td>ML eval metric</td><td class="good">PR-AUC + recall@10%</td><td>Accuracy / F1</td><td>Crime is rare-event — accuracy is trivially 99%+</td></tr>
+        <tr><td>Tile provider</td><td class="good">MapTiler + MapLibre</td><td>Google / Mapbox</td><td>Free tier: 100K map loads/month; open-source renderer</td></tr>
+        <tr><td>Auth</td><td class="good">None (anonymous)</td><td>Google SSO</td><td>Sidesteps DPDP Act compliance entirely for v1</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>
