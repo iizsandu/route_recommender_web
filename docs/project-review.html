@@ -356,12 +356,50 @@ p { font-size:14px; color:var(--text-muted); line-height:1.75; margin-bottom:10p
   </div>
 
   <div class="callout yellow" style="margin-top:-8px">
-    <p><strong>Time-based holdout:</strong> Train set = data before April 16 2026 (7,862 records). Test set = April 16 – May 16 2026 (935 records). No data leakage — the model never sees future crime locations during training.</p>
+    <p><strong>Evaluation holdout (time-based):</strong> To measure model quality, the crime snapshot is split by date. <strong>Test set = 935 records from April 16 – May 16 2026</strong> — used only for evaluation, never for training. Train split (7,862 records) is used for the naive baseline comparison. No data leakage — the test window is strictly future relative to the snapshot used to fit models.</p>
   </div>
 
   <hr>
   <h2>Tier 1 — KDE Risk Surface (Primary)</h2>
   <p class="section-sub">Kernel Density Estimation fits a continuous, smooth probability surface over crime event coordinates. No grid cells needed — any (lat, lng) can be scored instantly.</p>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">📁</span> KDE Training Data — Where It Comes From</div>
+    <div class="g2">
+      <div>
+        <h3>4-Step Filtering Pipeline</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Start: <strong style="color:var(--text)">8,797 records</strong> from Azure Cosmos DB &nbsp;→&nbsp; End: <strong style="color:var(--primary)">4,655 KDE pool records</strong></p>
+        <div class="step"><div class="step-num">1</div><div class="step-body"><div class="step-title"><code>is_delhi_crime = True</code></div><div class="step-desc">Location field must contain "Delhi" — removes non-NCR records extracted by the sister repo scraper</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">2</div><div class="step-body"><div class="step-title"><code>lat / lng not null</code></div><div class="step-desc">Must have valid GPS coordinates — records with geocoding failures are dropped (~14% of source records)</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">3</div><div class="step-body"><div class="step-title"><code>is_historical = False</code></div><div class="step-desc">Year ≥ 2007 — pre-2007 records are too sparse and geographically unreliable to improve the surface</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">4</div><div class="step-body"><div class="step-title"><code>crime_macro in KDE_ELIGIBLE</code></div><div class="step-desc">Excludes Fraud / Cybercrime, Unknown, Other — these are irrelevant to physical route safety</div></div></div>
+        <div class="callout" style="margin-top:16px">
+          <p><strong>What the model sees:</strong> Only two columns — <code>lat</code> and <code>lng</code> — plus a recency weight per record. KDE is purely spatial: it learns WHERE crimes cluster, not why or when.</p>
+        </div>
+      </div>
+      <div>
+        <h3>Training Records per Category</h3>
+        <table class="tbl">
+          <thead><tr><th>Crime Category</th><th>Records</th><th>Weight used</th></tr></thead>
+          <tbody>
+            <tr><td>Murder</td><td class="hi">1,589</td><td>1.5×</td></tr>
+            <tr><td>Robbery</td><td class="hi">827</td><td>2.0×</td></tr>
+            <tr><td>Assault</td><td>729</td><td>1.5×</td></tr>
+            <tr><td>Sexual Violence</td><td>566</td><td class="hi">3.0×</td></tr>
+            <tr><td>Theft / Burglary</td><td>481</td><td>0.7×</td></tr>
+            <tr><td>Kidnapping</td><td>172</td><td class="hi">2.5×</td></tr>
+            <tr><td>Drug Trafficking</td><td>164</td><td>0.5×</td></tr>
+            <tr><td>Terrorism / Riot</td><td>123</td><td>1.0×</td></tr>
+            <tr><td><strong>Total KDE pool</strong></td><td class="hi"><strong>4,655</strong></td><td>—</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size:12px;margin-top:10px">One separate KDE model is trained per row. The <strong>recency weight</strong> = <code>exp(−age_days / 90)</code> is applied per record at fit time — older crimes contribute less to the density surface.</p>
+      </div>
+    </div>
+  </div>
 
   <div class="g2">
     <div class="card">
@@ -452,6 +490,49 @@ route_risk = Σ<sub>waypoints</sub> kde(lat, lng)
   <hr>
   <h2>Tier 2 — LightGBM Cell Classifier (Ensemble)</h2>
   <p class="section-sub">A gradient-boosted tree model predicting crime probability per H3 hexagonal grid cell per week. Blended 30% with KDE to improve precision in repeat-crime areas.</p>
+
+  <div class="card">
+    <div class="card-title"><span class="icon">📁</span> LightGBM Training Data — How It Is Built</div>
+    <div class="g2">
+      <div>
+        <h3>From Crime Records → Cell × Week Panel</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">The same crime snapshot (8,797 records) is transformed into a panel dataset with many more rows — one row per (H3 cell, calendar week) combination.</p>
+        <div class="step"><div class="step-num">1</div><div class="step-body"><div class="step-title">Assign each crime to an H3 cell</div><div class="step-desc"><code>h3.geo_to_h3(lat, lng, resolution=7)</code> — maps each (lat, lng) to the containing hexagon ID</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">2</div><div class="step-body"><div class="step-title">Build Cartesian product (all cells × all weeks)</div><div class="step-desc">Every H3 cell in Delhi-NCR gets a row for every calendar week in the data — even if no crime occurred. Most rows have label = 0.</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">3</div><div class="step-body"><div class="step-title">Compute rolling density features</div><div class="step-desc">For each (cell, week) row: count crimes in past 30d / 90d in this cell and its 6 neighbours. Features are <code>shift(1)</code> — always last week's density, never this week's.</div></div></div>
+        <div class="step-arrow"></div>
+        <div class="step"><div class="step-num">4</div><div class="step-body"><div class="step-title">Binary label</div><div class="step-desc"><code>label = 1</code> if any KDE-eligible crime happened in this cell this week, else 0. Heavy imbalance — most cells are empty most weeks.</div></div></div>
+      </div>
+      <div>
+        <h3>Train / Test Split (Time-Series)</h3>
+        <div class="callout" style="margin-bottom:14px">
+          <p><strong>No random split.</strong> LightGBM uses a strict time-series split — the final 4 calendar weeks of the dataset are held out as the test set. Training sees only older weeks.</p>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>Split</th><th>Weeks</th><th>How used</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Train</strong></td><td>All weeks up to (latest − 4)</td><td>Fit LightGBM trees; compute scale_pos_weight</td></tr>
+            <tr><td><strong>Test</strong></td><td>Final 4 calendar weeks</td><td>Early stopping + PR-AUC / recall@10% reporting</td></tr>
+          </tbody>
+        </table>
+        <div class="callout yellow" style="margin-top:14px">
+          <p><strong>Class imbalance fix:</strong> <code>scale_pos_weight = n_negatives / n_positives</code>. Most (cell, week) pairs have no crime. Without this, LightGBM predicts 0 for everything and gets high accuracy but zero recall.</p>
+        </div>
+        <h3 style="margin-top:16px">4 Models Trained</h3>
+        <table class="tbl">
+          <thead><tr><th>Model</th><th>Label</th></tr></thead>
+          <tbody>
+            <tr><td>Global</td><td>Any KDE-eligible crime this week in this cell</td></tr>
+            <tr><td>Sexual Violence</td><td>Sexual violence crime this week in this cell</td></tr>
+            <tr><td>Robbery</td><td>Robbery crime this week in this cell</td></tr>
+            <tr><td>Assault</td><td>Assault crime this week in this cell</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
   <div class="g2">
     <div class="card">
