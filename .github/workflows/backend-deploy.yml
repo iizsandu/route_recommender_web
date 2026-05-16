@@ -38,7 +38,12 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
-          context: ./backend
+          # WHY context=.: Dockerfile copies ml/kde_model.py and ml/artifacts/ which
+          # live outside backend/. The build context must be the repo root so those
+          # paths are accessible. ml/artifacts/ is gitignored so CI images won't have
+          # model files — the real artifacts are baked in via local build + deploy.ps1.
+          context: .
+          file: ./backend/Dockerfile
           push: true
           tags: |
             ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -49,6 +54,7 @@ jobs:
           docker run -d --name smoke -p 8000:8000 \
             -e COSMOS_CONNECTION_STRING="AccountEndpoint=https://dummy.documents.azure.com/;AccountKey=dGVzdA==" \
             -e ORS_API_KEY="dummy_key_for_smoke_test" \
+            -e KDE_ARTIFACTS_DIR="/repo/ml/artifacts" \
             ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
           sleep 6
           curl --fail --retry 3 --retry-delay 2 http://localhost:8000/health

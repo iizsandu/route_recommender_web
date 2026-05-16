@@ -8,6 +8,8 @@ Responsibilities (grow with each phase):
   P0-2: initialise Cosmos client singleton in lifespan startup
 """
 
+import asyncio
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,25 +17,91 @@ import uuid
 from app.utils.logger import configure as configure_logging, get_logger, request_id_var
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from pathlib import Path
+
+from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
 from app.config import Settings
+from app.utils.limiter import limiter
+from app.routers import routes as routes_router
+from app.routers import risk as risk_router
+from app.services.risk_model import load_model, load_lightgbm_models, reload_from_registry
 
 settings = Settings()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Runs startup logic before yield; shutdown logic after yield.
-    FastAPI calls this once per process, not once per request.
+async def _hot_reload_loop(interval_seconds: int) -> None:
+    """Background task: check MLflow registry every interval_seconds and
+    swap in a newer Production model if one exists.
 
-    P0-2: initialise Cosmos async client, store on app.state
-    P1-4: load Production-stage KDE model from MLflow, store on app.state
-    P0-5: close Cosmos client and flush structlog buffer on shutdown
+    WHY check every hour rather than exactly at 21:30 UTC: simpler code,
+    and the hourly poll costs nothing (it's just an MLflow metadata query
+    until a new version appears). The retrain workflow finishes well within
+    an hour of its 20:30 UTC start, so the new model is picked up promptly.
     """
+    logger = get_logger("hot_reload")
+    while True:
+        await asyncio.sleep(interval_seconds)
+        # WHY run_in_executor: reload_from_registry does blocking I/O
+        # (pickle.load, MLflow HTTP/SQLite calls). Running it on the default
+        # thread-pool executor prevents it from blocking the asyncio event loop
+        # and stalling in-flight route requests during the swap.
+        loop = asyncio.get_event_loop()
+        reloaded = await loop.run_in_executor(None, reload_from_registry)
+        if reloaded:
+            logger.info("model hot-reload completed by background task")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     configure_logging(settings.LOG_FORMAT, settings.LOG_LEVEL)
     logger = get_logger("startup")
     logger.info("backend starting", log_format=settings.LOG_FORMAT)
+
+    # Load KDE model once at startup — shared across all requests.
+    # WHY resolve relative to repo root: KDE_ARTIFACTS_DIR may be a relative
+    # path like "ml/artifacts". When uvicorn runs from backend/, that resolves
+    # to backend/ml/artifacts which doesn't exist. We anchor it to the repo root
+    # (two levels up from backend/app/) so it works from any working directory.
+    _repo_root = Path(__file__).resolve().parents[2]  # backend/app/main.py → repo root
+    artifacts_path = Path(settings.KDE_ARTIFACTS_DIR)
+    if not artifacts_path.is_absolute():
+        artifacts_path = _repo_root / artifacts_path
+    try:
+        load_model(artifacts_path)
+    except Exception as exc:
+        # WHY non-fatal: CI-built images have no pkl files (ml/artifacts/ is gitignored).
+        # The container still starts and serves /health. Routing requests return 503
+        # until a real image (built locally with artifacts) is deployed.
+        logger.warning("KDE model load failed — routing unavailable", error=str(exc))
+
+    # Load LightGBM models if the feature flag is on.
+    # WHY optional: LGB artifacts may not exist on first deploy. Setting
+    # USE_LIGHTGBM=False (the default) skips this block entirely so the
+    # backend stays up even if train_lightgbm.py has never been run.
+    if settings.USE_LIGHTGBM:
+        lgb_path = Path(settings.LGB_ARTIFACTS_DIR)
+        if not lgb_path.is_absolute():
+            lgb_path = _repo_root / lgb_path
+        try:
+            load_lightgbm_models(lgb_path)
+            logger.info("lightgbm ensemble enabled")
+        except Exception as exc:
+            logger.warning("LightGBM model load failed — ensemble disabled", error=str(exc))
+
+    # Start background reload loop — checks MLflow registry every hour.
+    reload_task = asyncio.create_task(
+        _hot_reload_loop(settings.MODEL_RELOAD_INTERVAL_SECONDS)
+    )
+
     yield
+
+    # WHY cancel not await: the loop sleeps for up to an hour. cancel()
+    # raises CancelledError inside the sleep, which unblocks shutdown immediately.
+    reload_task.cancel()
     logger.info("backend shutting down")
 
 
@@ -43,10 +111,20 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         # WHY: set before call_next so the ID is available in all downstream
         # log calls for this request, including inside service functions
         token = request_id_var.set(str(uuid.uuid4()))
+        t0 = time.monotonic()
         response = await call_next(request)
+        duration_ms = round((time.monotonic() - t0) * 1000, 2)
         response.headers["X-Request-ID"] = request_id_var.get()
-        # WHY: reset after response so the ContextVar slot is clean for the
-        # next request that reuses this async task
+        # WHY log here not in each router: one place captures every endpoint,
+        # including /health, without instrumenting each handler individually.
+        _mw_logger = get_logger("request")
+        _mw_logger.info(
+            "request completed",
+            path=request.url.path,
+            method=request.method,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+        )
         request_id_var.reset(token)
         return response
 
@@ -74,7 +152,18 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(RequestIdMiddleware)
-    # Phase 1: include routers/routes.py and routers/risk.py
+    app.add_middleware(SlowAPIMiddleware)
+    app.state.limiter = limiter
+    # WHY _rate_limit_exceeded_handler: slowapi's built-in handler returns 429
+    # with a Retry-After header set to the window reset time automatically.
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.include_router(routes_router.router)
+    app.include_router(risk_router.router)
+
+    # WHY instrument after routers: Instrumentator wraps the fully-built app,
+    # so all routes (including /routes/recommend) appear in /metrics labels.
+    # expose() adds GET /metrics — no auth needed for portfolio demo traffic.
+    Instrumentator().instrument(app).expose(app)
 
     return app
 

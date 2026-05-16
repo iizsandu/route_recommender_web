@@ -9,5 +9,14 @@ numpy==1.26.4
 structlog==24.1.0
 slowapi==0.1.9
 python-dateutil==2.8.2
+mlflow-skinny==2.11.0
+# Phase 5 — Observability
+prometheus-fastapi-instrumentator==6.1.0
+prometheus-client>=0.19.0
+# Phase 4 — LightGBM ensemble (only active when USE_LIGHTGBM=True)
+lightgbm==4.3.0
+h3==3.7.7
+pandas==2.2.0
 pytest==8.1.1
 pytest-asyncio==0.23.6
+ruff==0.4.2

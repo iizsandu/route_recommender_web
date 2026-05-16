@@ -13,7 +13,8 @@
     "react-dom": "^18.2.0",
     "axios": "^1.6.7",
     "maplibre-gl": "^4.0.0",
-    "react-map-gl": "^7.1.7"
+    "react-map-gl": "^7.1.7",
+    "@sentry/react": "^8.0.0"
   },
   "devDependencies": {
     "vite": "^5.1.0",

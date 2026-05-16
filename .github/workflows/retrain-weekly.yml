@@ -1,0 +1,182 @@
+name: Weekly Retrain
+
+# WHY schedule at 20:30 UTC Saturday: that is Sunday 02:00 IST (UTC+5:30).
+# Low-traffic window; retrain completes before Monday commute queries begin.
+on:
+  schedule:
+    - cron: "30 20 * * 6"
+  workflow_dispatch:   # manual trigger for testing / emergency retrains
+
+env:
+  # WHY sqlite URI here and not in a secret: the DB is ephemeral per-run.
+  # Across runs we restore/save the artifacts/ dir via cache (see steps below).
+  MLFLOW_TRACKING_URI: sqlite:///ml/artifacts/mlruns.db
+  MLFLOW_REGISTRY_URI: sqlite:///ml/artifacts/mlruns.db
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    # WHY write permission: the "open issue on failure" step calls the
+    # GitHub API to create an issue in this repo.
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: ml/requirements.txt
+
+      - name: Install ML dependencies
+        run: pip install -r ml/requirements.txt
+
+      # WHY restore before ingest: the mlruns.db accumulates run history across
+      # weeks so promote_model can find the previous Production model's tags.
+      # restore-keys fallback picks the most recent cache when an exact match
+      # (same run_id) doesn't exist yet.
+      - name: Restore MLflow artifacts cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ml/artifacts
+          key: mlflow-artifacts-${{ github.run_id }}
+          restore-keys: |
+            mlflow-artifacts-
+
+      # ── Pipeline ────────────────────────────────────────────────────────────
+
+      - name: Ingest crime records from Cosmos DB
+        id: ingest
+        env:
+          COSMOS_CONNECTION_STRING: ${{ secrets.COSMOS_CONNECTION_STRING }}
+          COSMOS_DATABASE_NAME: route_recommender
+          COSMOS_CONTAINER_NAME: structured_crimes
+        run: python -m ml.data.ingest
+
+      - name: Find latest snapshot
+        id: snapshot
+        # WHY output to GITHUB_OUTPUT: the validate step needs the explicit
+        # path; train_kde uses --latest internally but validate does not.
+        run: |
+          SNAPSHOT=$(ls -t ml/data/snapshots/crimes_*.parquet | head -1)
+          echo "path=$SNAPSHOT" >> "$GITHUB_OUTPUT"
+          echo "Snapshot: $SNAPSHOT"
+
+      - name: Validate snapshot (Great Expectations)
+        id: validate
+        run: python -m ml.data.validate "${{ steps.snapshot.outputs.path }}"
+
+      # WHY open an issue rather than just failing silently: a bad snapshot
+      # must not block the retrain silently. The issue pings the maintainer
+      # and provides a direct link to the failed run for diagnosis.
+      - name: Open GitHub issue on validation failure
+        if: failure() && steps.validate.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString().slice(0, 10);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: `[retrain] Data validation failed ${date}`,
+              body: [
+                "Weekly retrain aborted — Great Expectations validation failed.",
+                "",
+                `**Run:** ${runUrl}`,
+                "",
+                "Next steps:",
+                "1. Check the validate step logs for which expectation failed.",
+                "2. Investigate the Cosmos DB snapshot for coordinate or category quality issues.",
+                "3. If the snapshot is recoverable, fix and trigger a manual retrain via **workflow_dispatch**.",
+              ].join("\n"),
+              labels: ["retrain-failure", "data-quality"],
+            });
+
+      - name: Train KDE model
+        id: train
+        # WHY --latest: train_kde.py auto-discovers the snapshot written by
+        # the ingest step above. No path passing needed between steps.
+        run: python -m ml.train_kde --latest
+
+      - name: Find latest challenger artifacts
+        id: challenger
+        # WHY glob kde_*.pkl: one file per category, not a single combined pkl.
+        # promote_model.py receives the artifacts directory and loads all of them.
+        run: |
+          PKL_DIR=ml/artifacts
+          PKL_COUNT=$(ls $PKL_DIR/kde_*.pkl 2>/dev/null | wc -l)
+          echo "dir=$PKL_DIR" >> "$GITHUB_OUTPUT"
+          echo "count=$PKL_COUNT" >> "$GITHUB_OUTPUT"
+          echo "Challenger artifacts: $PKL_COUNT kde_*.pkl files in $PKL_DIR"
+
+      - name: Evaluate and promote (champion/challenger gate)
+        id: promote
+        run: |
+          python -m ml.promote_model \
+            "${{ steps.snapshot.outputs.path }}" \
+            "${{ steps.challenger.outputs.dir }}"
+
+      - name: Generate risk heatmap GeoJSON
+        id: heatmap
+        # WHY after promote: heatmap reflects the model that was just promoted
+        # to Production. Running before promote would score with the challenger.
+        run: python -m ml.generate_heatmap --artifacts ml/artifacts
+
+      # ── Persistence ─────────────────────────────────────────────────────────
+
+      # WHY save even on failure: a partial mlruns.db is still useful for
+      # debugging failed runs in the MLflow UI. The next run's restore-keys
+      # fallback will pick up this cache.
+      - name: Save MLflow artifacts cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ml/artifacts
+          key: mlflow-artifacts-${{ github.run_id }}
+
+      # WHY upload as a GitHub artifact in addition to cache: artifacts have
+      # a UI download link and a 30-day retention window. Cache entries can
+      # be evicted by GitHub's LRU policy before 30 days.
+      - name: Upload promoted model artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kde-artifacts-${{ github.run_id }}
+          # WHY kde_*.pkl glob: one file per category, not a single combined pkl.
+          path: ml/artifacts/kde_*.pkl
+          retention-days: 30
+
+      # ── Notification (optional) ──────────────────────────────────────────────
+
+      # WHY skip gracefully when secret absent: SLACK_WEBHOOK is optional.
+      # Portfolio / solo dev setup won't have Slack; skip rather than error.
+      - name: Notify Slack on success
+        if: success() && secrets.SLACK_WEBHOOK != ''
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": ":white_check_mark: *Retrain succeeded* — model promoted to Production.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify Slack on failure
+        if: failure() && secrets.SLACK_WEBHOOK != ''
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": ":x: *Retrain failed* — champion model unchanged.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

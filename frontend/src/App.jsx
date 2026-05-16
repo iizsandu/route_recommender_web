@@ -1,45 +1,70 @@
-import { useState, useEffect } from 'react'
-
-// Phase 2: replace with <MapView /> + <RouteForm /> layout
-
-function useApiHealth() {
-  const [status, setStatus] = useState('checking')
-
-  useEffect(() => {
-    const apiUrl = import.meta.env.VITE_API_BASE_URL
-    // WHY: in local dev VITE_API_BASE_URL is unset; fall back to /api/health
-    // which vite.config.js proxies to http://localhost:8000/health.
-    // In production the full URL is baked in at build time.
-    const healthUrl = apiUrl ? `${apiUrl}/health` : '/api/health'
-
-    fetch(healthUrl)
-      .then(r => (r.ok ? setStatus('online') : setStatus('offline')))
-      .catch(() => setStatus('offline'))
-  }, [])
-
-  return status
-}
-
-const BADGE_COLOR = {
-  checking: 'bg-gray-400',
-  online: 'bg-green-500',
-  offline: 'bg-red-500',
-}
+// frontend/src/App.jsx
+import { useState } from 'react'
+import { useRouteRecommend } from './hooks/useRouteRecommend'
+import DisclaimerModal, { hasAcknowledged } from './components/DisclaimerModal'
+import RouteForm from './components/RouteForm'
+import RouteResults from './components/RouteResults'
+import MapView from './components/MapView'
 
 export default function App() {
-  const apiStatus = useApiHealth()
+  const [disclaimerOpen, setDisclaimerOpen] = useState(!hasAcknowledged())
+  const [selectedIdx, setSelectedIdx]       = useState(0)
+
+  const { routes, loading, error, recommend } = useRouteRecommend()
+
+  async function handleFormSubmit(params) {
+    setSelectedIdx(0)
+    await recommend(params)
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center space-y-4">
-        <h1 className="text-2xl font-semibold text-gray-800">
+    <div className="flex flex-col h-screen">
+      {/* ── Top bar ─────────────────────────────────────────────────────── */}
+      <header className="flex items-center justify-between px-4 py-3 bg-white border-b shadow-sm z-10">
+        <span className="font-semibold text-gray-800 text-sm">
           Route Recommender — Delhi NCR
-        </h1>
-        <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
-          <span className={`inline-block w-2 h-2 rounded-full ${BADGE_COLOR[apiStatus]}`} />
-          <span>API: {apiStatus}</span>
-        </div>
+        </span>
+        <button
+          onClick={() => setDisclaimerOpen(true)}
+          className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+          title="About this app"
+          aria-label="Open disclaimer"
+        >
+          ⓘ
+        </button>
+      </header>
+
+      {/* ── Main layout ─────────────────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left panel */}
+        <aside className="w-80 shrink-0 bg-white border-r overflow-y-auto p-4 space-y-4">
+          <RouteForm onSubmit={handleFormSubmit} loading={loading} />
+
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
+          )}
+
+          <RouteResults
+            routes={routes}
+            selectedIdx={selectedIdx}
+            onSelect={setSelectedIdx}
+          />
+        </aside>
+
+        {/* Map panel */}
+        <main className="flex-1">
+          <MapView
+            routes={routes}
+            selectedIdx={selectedIdx}
+            onSelectRoute={setSelectedIdx}
+          />
+        </main>
       </div>
+
+      <DisclaimerModal
+        open={disclaimerOpen}
+        onClose={() => setDisclaimerOpen(false)}
+      />
     </div>
   )
 }

@@ -40,4 +40,4 @@ frontend/.vite/
 Thumbs.db
 
 # Docker
-*.dockerignore
+# (intentionally not ignoring .dockerignore — it is committed to version control)

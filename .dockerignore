@@ -1,0 +1,58 @@
+# Secrets — never bake into image
+.env
+*.env.local
+
+# Python caches and build output
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+htmlcov/
+.coverage
+**/*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+backend/.venv/
+ml/.venv/
+
+# Frontend — not needed in backend image
+frontend/
+
+# ML: exclude everything under ml/ EXCEPT kde_model.py and artifacts/
+# (negation rules below re-include what we need)
+ml/data/
+ml/notebooks/
+ml/requirements.txt
+ml/train_kde.py
+ml/train_lightgbm.py
+ml/evaluate.py
+ml/promote_model.py
+ml/generate_heatmap.py
+
+# Large ML data files not needed at runtime
+ml/artifacts/mlruns.db
+ml/artifacts/*.parquet
+
+# Git and CI
+.git/
+.github/
+
+# Documentation and infra scripts (not runtime code)
+docs/
+infra/
+scripts/
+
+# Node
+node_modules/
+frontend/node_modules/
+
+# IDE and OS
+.vscode/
+.idea/
+**/*.swp
+.DS_Store
+Thumbs.db

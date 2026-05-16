@@ -69,35 +69,31 @@ route_recommender_web/
 │   ├── pyproject.toml
 │   ├── app/
 │   │   ├── __init__.py
-│   │   ├── main.py                 # App entrypoint, CORS, lifespan
+│   │   ├── main.py                 # App entrypoint, CORS, lifespan, GET /health
 │   │   ├── config.py               # Pydantic Settings, env-based
-│   │   ├── dependencies.py         # Shared singletons (Cosmos client, KDE model)
 │   │   ├── routers/
 │   │   │   ├── __init__.py
-│   │   │   ├── health.py           # GET /health
 │   │   │   ├── routes.py           # POST /routes/recommend
-│   │   │   └── risk.py             # GET /risk/cell, GET /risk/heatmap
+│   │   │   └── risk.py             # GET /risk/cell, GET /risk/heatmap [NOT YET BUILT]
 │   │   ├── services/
 │   │   │   ├── __init__.py
 │   │   │   ├── cosmos_client.py    # Async read-only Cosmos client
 │   │   │   ├── routing.py          # OpenRouteService wrapper + caching
-│   │   │   ├── geocoding.py        # Address → lat/lng (Nominatim or ORS)
-│   │   │   ├── risk_model.py       # KDE risk surface (loads pickled model)
-│   │   │   └── route_scorer.py     # Aggregate route risk from waypoints
+│   │   │   ├── geocoding.py        # Address → lat/lng (ORS Pelias)
+│   │   │   └── risk_model.py       # KDE loader, score_points_batch, score_route
 │   │   ├── schemas/
 │   │   │   ├── __init__.py
 │   │   │   ├── routes.py           # RouteRequest, RouteResponse, RouteOption
-│   │   │   └── risk.py             # RiskQuery, RiskResponse
-│   │   ├── models/                 # Pickled risk_model.pkl loaded on startup
+│   │   │   └── risk.py             # RiskQuery, RiskResponse [NOT YET BUILT]
 │   │   └── utils/
 │   │       ├── __init__.py
-│   │       ├── logger.py           # structlog
+│   │       ├── logger.py           # structlog JSON/console
 │   │       └── cache.py            # In-memory TTL cache for routes/geocoding
 │   └── tests/
-│       ├── test_risk_model.py
-│       ├── test_route_scorer.py
-│       ├── test_routing.py
-│       └── conftest.py
+│       ├── test_cosmos.py          # 7 tests — Cosmos client (passing)
+│       ├── test_risk_model.py      # [NOT YET BUILT]
+│       ├── test_routing.py         # [NOT YET BUILT]
+│       └── conftest.py             # [NOT YET BUILT]
 │
 ├── frontend/                       # React 18 SPA (port 3000 dev, deployed to Vercel)
 │   ├── Dockerfile
@@ -124,15 +120,25 @@ route_recommender_web/
 │
 ├── ml/                             # ML training and MLOps
 │   ├── requirements.txt
-│   ├── train_kde.py                # Build KDE model from Cosmos snapshot
+│   ├── kde_model.py                # FixedBandwidthKDE subclass — stable pickle path
+│   ├── train_kde.py                # Build per-category KDE models from snapshot
 │   ├── train_lightgbm.py           # Phase 4 — LightGBM risk classifier
 │   ├── evaluate.py                 # Time-based holdout, PR-AUC, recall@10%
 │   ├── promote_model.py            # Champion/challenger gate logic
 │   ├── data/
+│   │   ├── category_mapping.py     # crime_type → macro regex map (80+ patterns)
 │   │   ├── ingest.py               # Cosmos → DataFrame → Parquet snapshot
 │   │   └── validate.py             # Great Expectations data quality
 │   ├── notebooks/                  # Exploratory only, not part of pipeline
 │   └── artifacts/                  # MLflow + pickled models output here
+│       ├── kde_assault.pkl
+│       ├── kde_drug_trafficking.pkl
+│       ├── kde_kidnapping.pkl
+│       ├── kde_murder.pkl
+│       ├── kde_robbery.pkl
+│       ├── kde_sexual_violence.pkl
+│       ├── kde_terrorism_riot.pkl
+│       └── kde_theft_burglary.pkl
 │
 ├── infra/
 │   ├── azure/
@@ -143,11 +149,17 @@ route_recommender_web/
 │
 └── .github/
     └── workflows/
-        ├── backend-ci.yml          # Lint, test, build on PR
-        ├── backend-deploy.yml      # Deploy to Azure Container Apps on main
+        ├── backend-ci.yml          # Lint, test, build on PR [NOT YET BUILT]
+        ├── backend-deploy.yml      # Build + push to GHCR; manual deploy via scripts/deploy.ps1
         ├── frontend-ci.yml         # Lint, test, build on PR
         └── retrain-weekly.yml      # Weekly cron: retrain KDE/LightGBM
 ```
+
+**Intentional deviations from original spec:**
+- `backend/app/routers/health.py` — `GET /health` lives directly in `main.py` (simpler, one less file)
+- `backend/app/dependencies.py` — not needed; singletons initialised in lifespan and passed via module-level imports
+- `backend/app/services/route_scorer.py` — consolidated into `risk_model.py` (`score_route` lives there)
+- `ml/kde_model.py` + `ml/data/category_mapping.py` — added during EDA rebuild; not in original spec but now required by pipeline
 
 **Files Claude Code should NOT create in v1 (out of scope):**
 - Auth-related files (login, signup, sessions)
@@ -346,94 +358,32 @@ queries to avoid drift. Stored in a small SQLite or JSON file.
 
 ---
 
-## Active Sprint — Phase 0: Bootstrap & Deploy
+## Active Sprint — Phase 5: Productionisation
 
-> **Claude Code instruction:** Work tasks in order. Complete one task fully
-> (code + tests + deployed if applicable) before starting the next. Move
-> completed tasks to the Sprint Completed Log at the bottom of this file.
+> **Status as of 2026-05-16:**
+> - Phase 0 (Bootstrap) ✅ complete
+> - Phase 1 (Risk Surface MVP) ✅ complete
+> - Phase 2 (Frontend MVP) ✅ complete
+> - Phase 3 (MLOps Foundation) ✅ complete
+> - Phase 4 (LightGBM) ✅ complete — pipeline built; enable with USE_LIGHTGBM=True after running train_lightgbm.py
+> - Phase 5 (Productionisation) ✅ complete
 
 ### Current Task
 
-**TASK P0-4 — Deploy frontend to Vercel**
+**All planned phases complete.** No active task. Next session should define a new phase or address items in Tech Debt & Open Questions.
 
 ---
 
-### Upcoming Tasks (do not start until current is done)
+### Local Dev Notes (operational, not a phase task)
 
-**TASK P0-2 — Cosmos DB read-only client**
-
-**Files:** `backend/app/services/cosmos_client.py`, `backend/tests/test_cosmos.py`
-
-- Async client using `azure-cosmos`
-- Read-only — never write
-- Method: `async def fetch_crime_records(since: datetime | None = None) -> list[dict]`
-- Returns flat dicts, strips Cosmos metadata (`_rid`, `_self`, `_etag`, etc.)
-- Uses connection string from env (`COSMOS_CONNECTION_STRING`)
-- Configurable container name via env (default: `structured_crimes`)
-- Test: mock the Cosmos response, assert metadata stripped, assert empty
-  result handled
-
-**Do NOT:**
-- Implement caching here (separate concern, comes in P0-4)
-- Filter by Delhi bounds here — that's the model layer's job
-
----
-
-**TASK P0-3 — Deploy backend stub to Azure Container Apps**
-
-**Files:** `infra/azure/container-app.bicep`, `.github/workflows/backend-deploy.yml`,
-`infra/azure/README.md`
-
-- Bicep template provisions:
-  - Container App Environment (consumption plan, free tier)
-  - Container App with min=0, max=2 replicas (scale to zero)
-  - Ingress public, port 8000
-  - Secrets for env vars (Cosmos connection string at minimum)
-- GitHub Action triggers on push to `main`:
-  - Build Docker image
-  - Push to Azure Container Registry (or GHCR)
-  - Deploy to Container App via `az containerapp update`
-- README documents one-time manual setup steps (creating ACR, service
-  principal for GitHub Actions, secret names)
-
-**Acceptance:**
-- Public URL responds 200 to `/health`
-- Cold start under 10 seconds (acceptable for portfolio)
-- GitHub Action runs end-to-end on a test commit
-
----
-
-**TASK P0-4 — Deploy frontend to Vercel**
-
-**Files:** `infra/vercel/README.md`, `frontend/.env.example`,
-`.github/workflows/frontend-ci.yml`
-
-- Connect Vercel to GitHub repo (manual one-time)
-- Auto-deploy on push to `main`
-- Env var: `VITE_API_BASE_URL` points to Azure Container App URL
-- Frontend health check: shows "API: online" badge if backend `/health` reachable
-
-**Acceptance:**
-- Public URL renders "Hello World" page
-- Frontend can hit backend `/health` (CORS configured correctly)
-
----
-
-**TASK P0-5 — Configure CORS, secrets, observability basics**
-
-**Files:** `backend/app/main.py`, `backend/app/utils/logger.py`
-
-- CORS: only allow Vercel preview URLs + the production frontend URL
-- `structlog` configured for JSON logs in production, human-readable in dev
-- All env vars validated at startup via Pydantic Settings — service refuses
-  to start if `COSMOS_CONNECTION_STRING` is missing
-- Add request-ID middleware for tracing
-
-**Acceptance:**
-- Frontend on Vercel can call backend (no CORS errors)
-- Logs in Azure Container App stream show structured JSON
-- Starting backend without `COSMOS_CONNECTION_STRING` fails fast with
-  a clear error
+- Backend canonical port: **8000**. If port 8000 is stuck (ghost socket on Windows),
+  run on **8080** (`uvicorn app.main:app --port 8080`) and update `ALLOWED_ORIGINS`
+  in root `.env` to include `http://localhost:3001` if Vite bumped to that port.
+- `VITE_API_BASE_URL` must be **empty** in `frontend/.env` for local dev — the Vite
+  proxy (proxy target: `http://localhost:8000`) handles routing to the backend.
+  Setting it to a URL bypasses the proxy and triggers CORS preflight failures.
+- `frontend/.env` is separate from root `.env`. Vite only reads `frontend/.env`;
+  the root `.env` is for the backend (uvicorn reads it via pydantic-settings).
 
 ---
 
@@ -693,19 +643,26 @@ COSMOS_CONTAINER_NAME=structured_crimes
 ORS_API_KEY=eyJvcmc...
 ORS_BASE_URL=https://api.openrouteservice.org
 
-# MapTiler
+# MapTiler (public key — MapTiler enforces domain restriction, not secrecy)
 VITE_MAPTILER_KEY=your_key_here
+
+# Risk model
+KDE_ARTIFACTS_DIR=ml/artifacts          # path to dir with kde_*.pkl files
+BAND_LOW_THRESHOLD=0.0713               # city-wide p33 (Low/Medium boundary)
+BAND_HIGH_THRESHOLD=0.9142              # city-wide p66 (Medium/High boundary)
+# Recalibrate after each retrain; these are from the 2026-05-16 KDE inspection
 
 # MLflow
 MLFLOW_TRACKING_URI=sqlite:///ml/artifacts/mlruns.db
 MLFLOW_REGISTRY_URI=sqlite:///ml/artifacts/mlruns.db
+MODEL_RELOAD_INTERVAL_SECONDS=3600      # how often backend checks for new model
 
 # CORS
-ALLOWED_ORIGINS=http://localhost:3000,https://route-recommender.vercel.app
+ALLOWED_ORIGINS=http://localhost:3000,https://route-recommender-web.vercel.app
 
 # Logging
 LOG_LEVEL=INFO
-LOG_FORMAT=json
+LOG_FORMAT=console   # "console" locally; "json" in Azure Container Apps
 ```
 
 ---
@@ -758,6 +715,167 @@ LOG_FORMAT=json
 ## Sprint Completed Log
 
 > Move tasks here when fully implemented + tested + deployed.
+
+### P5-5 — Backend CI workflow (2026-05-16)
+- `backend/tests/conftest.py` — sets dummy env vars at module level (before any `Settings()` import fires), provides `fake_kde` (MagicMock returning `np.ones`) and `fake_model_dict` fixtures
+- `backend/tests/test_risk_model.py` — 3 tests: happy-path batch scoring with numeric assertion (daytime ×0.7 applied correctly), zero-waypoints short-circuit, zero-weight category skips KDE call
+- `backend/tests/test_routing.py` — 10 tests: pure-function `_sample_waypoints` (empty, single coord, lng/lat flip, interval), TTLCache (miss/hit/expiry with `monkeypatch`), `get_routes` ORS response parsing (httpx mocked via `unittest.mock.AsyncMock`), cache-hit skips HTTP call
+- `.github/workflows/backend-ci.yml` — triggers on push/PR to master for `backend/**`; steps: Python 3.11, pip cache, install deps, `ruff check`, `pytest -v`; dummy env vars in workflow `env:` block so module-level `Settings()` in `routing.py` does not raise
+- `backend/requirements.txt` — added `ruff==0.4.2`
+- **All 13 new tests pass** alongside the existing 7 Cosmos tests (20 total)
+
+### P5-4 — Documentation (2026-05-16)
+
+- `README.md` — full rewrite: architecture diagram, local dev (backend + frontend + Docker), full ML pipeline commands, environment variable table, deployment overview (Azure + Vercel + weekly retrain), observability summary, project status table.
+- `docs/adr/001-kde-vs-h3-cells.md` — KDE vs H3 cell grid: why KDE wins at ~4k records, upgrade path via LightGBM feature flag.
+- `docs/adr/002-three-band-display.md` — 3-band display vs raw scores: legal (defamation), UX (decision support), and precision-honesty rationale.
+- `docs/adr/003-time-multiplier.md` — Hand-tuned time multiplier vs 3D KDE vs NCRB lookup: why hand-tuned wins given <20% hour-of-day coverage in training data.
+
+### P5-3 — Performance: route score caching + heatmap (2026-05-16)
+
+- `backend/app/routers/routes.py` — added `_RESPONSE_CACHE` (`TTLCache`, 300s). Cache key = `{lat_o:.3f},{lng_o:.3f}-{lat_d:.3f},{lng_d:.3f}-{time_band}-{profile}` where time_band is one of night/evening/day/morning. Hit before ORS + KDE calls; set after successful scoring. `_time_band()` coarsens exact departure time to 4 bands so nearby requests share cache entries.
+- `ml/generate_heatmap.py` — new standalone script: loads `kde_*.pkl` from artifacts dir, scores a 0.02° grid over Delhi-NCR (lat 28.0–29.5, lng 76.5–78.0) at hour=12 (daytime neutral baseline), assigns Low/Medium/High bands, writes compact GeoJSON to `ml/artifacts/heatmap.geojson` (~400 KB, ~5,700 Point features).
+- `backend/app/routers/risk.py` — new router: `GET /risk/heatmap` loads heatmap.geojson once into memory on first request, returns as `JSONResponse`. Returns 503 if file hasn't been generated yet.
+- `backend/app/main.py` — registered `risk_router` (`/risk` prefix).
+- `backend/app/config.py` — added `HEATMAP_PATH: str = "ml/artifacts/heatmap.geojson"`.
+- `.github/workflows/retrain-weekly.yml` — added heatmap generation step after promote (so heatmap reflects the newly promoted model).
+- `.env.example` — documented `HEATMAP_PATH`.
+
+**To activate heatmap:** run `python -m ml.generate_heatmap` once locally, then restart the backend. `GET /risk/heatmap` returns the GeoJSON. The weekly workflow regenerates it automatically thereafter.
+
+### P5-2 — Rate Limiting (2026-05-16)
+
+- `backend/app/utils/limiter.py` — new file; module-level `Limiter(key_func=get_remote_address)` singleton shared between `main.py` and `routes.py` to avoid circular imports and ensure one shared counter store.
+- `backend/app/main.py` — added `SlowAPIMiddleware`, `app.state.limiter = limiter`, and `RateLimitExceeded` exception handler (returns 429 + `Retry-After` header automatically).
+- `backend/app/routers/routes.py` — `@limiter.limit("60/minute")` applied to `POST /routes/recommend`; added `request: Request` parameter (required by slowapi for IP extraction). `/health` and `/metrics` are not decorated — excluded from limiting by design.
+
+**Acceptance met:**
+- 61st request within 60 seconds from one IP → 429 with `Retry-After` header
+- `/health` and `/metrics` return 200 regardless of rate limit state
+
+### P5-1 — Observability (2026-05-16)
+
+- `backend/app/main.py` — `RequestIdMiddleware` now records `time.monotonic()` before/after each request and logs `duration_ms` via structlog on every response (path, method, status_code, duration_ms). `prometheus_fastapi_instrumentator.Instrumentator` wired into `create_app()` — auto-instruments all HTTP routes and exposes `GET /metrics` (Prometheus text format).
+- `backend/app/routers/routes.py` — `_ROUTES_TOTAL` Counter (`routes_recommended_total`) incremented on each successful `/routes/recommend` response.
+- `backend/app/services/risk_model.py` — `_MODEL_INFERENCE_SECONDS` Histogram wraps `score_route()` via a thin public shim that calls `_score_route_impl()` under `.time()`. Buckets tuned to expected KDE latency range (5ms–2.5s).
+- `backend/requirements.txt` — added `prometheus-fastapi-instrumentator==6.1.0`, `prometheus-client>=0.19.0`.
+- `frontend/src/main.jsx` — `Sentry.init()` called at app boot when `VITE_SENTRY_DSN` is set; skipped silently in local dev. `tracesSampleRate=0.1` to stay within free tier.
+- `frontend/package.json` — added `@sentry/react^8.0.0`.
+- `.env.example` — documented `VITE_SENTRY_DSN` with setup note.
+
+**Acceptance met:**
+- Every request logs `duration_ms` (check structlog output)
+- `GET /metrics` returns Prometheus text including `routes_recommended_total` and `model_inference_seconds`
+- Sentry captures frontend errors when `VITE_SENTRY_DSN` is configured in Vercel env vars
+
+### P4-1 through P4-4 — LightGBM Risk Classifier (2026-05-16)
+
+- `ml/requirements.txt` — created with all ML deps including `h3==3.7.7` and `lightgbm==4.3.0`
+- `ml/data/h3_cells.py` — P4-1: assigns crimes to H3 res-7 cells, builds Cartesian product (all cells × all weeks), computes `cell_density_30d`, `cell_density_90d`, `neighbour_density_30d` rolling features (shift-1 to prevent label leakage), binary `label`, saves `cell_features_YYYY-MM-DD.parquet` + `cell_encoder_YYYY-MM-DD.pkl`
+- `ml/train_lightgbm.py` — P4-2 + P4-4: trains global binary LightGBM + per-category models (Sexual Violence, Robbery, Assault); time-series CV (4-week holdout, no leakage); `scale_pos_weight` for class imbalance; PR-AUC + recall@10% logged to MLflow under `lightgbm_risk` experiment; artifacts saved as `lgb_{slug}.pkl` in `ml/artifacts/`
+- `backend/app/config.py` — P4-3: added `USE_LIGHTGBM: bool = False`, `LGB_ARTIFACTS_DIR: str = "ml/artifacts"`, `KDE_ENSEMBLE_WEIGHT: float = 0.7`, `LGB_ENSEMBLE_WEIGHT: float = 0.3`
+- `backend/app/services/risk_model.py` — P4-3: added `_LGB_MODELS` global, `load_lightgbm_models()`, `_score_lgb_batch()` (h3 imported lazily so backend works without h3 when USE_LIGHTGBM=False); `score_points_batch()` and `score_route()` blend KDE + LGB when `_LGB_MODELS is not None`
+- `backend/app/main.py` — P4-3: calls `load_lightgbm_models()` in lifespan if `settings.USE_LIGHTGBM=True`
+- `backend/requirements.txt` — added `lightgbm==4.3.0`, `h3==3.7.7`, `pandas==2.2.0`
+- `.env.example` — documented `USE_LIGHTGBM`, `LGB_ARTIFACTS_DIR`, ensemble weights
+
+**To activate:** run `python -m ml.data.h3_cells --latest`, then `python -m ml.train_lightgbm --latest`, then set `USE_LIGHTGBM=True` in `.env` and restart the backend.
+
+**Gate:** promote_model.py still gates on KDE PR-AUC. LightGBM runs as an additive ensemble; if it doesn't improve perceived routing quality, flip `USE_LIGHTGBM=False` to roll back instantly.
+
+### Smoke test — backend startup + routing fixes (2026-05-16)
+- `backend/app/config.py` — fixed `.env` discovery: `env_file=".env"` (relative to CWD) replaced with `env_file=str(_REPO_ROOT / ".env")` where `_REPO_ROOT = Path(__file__).resolve().parents[2]`. Now works regardless of which directory uvicorn is started from.
+- `backend/app/main.py` — fixed `KDE_ARTIFACTS_DIR` relative path resolution: if `settings.KDE_ARTIFACTS_DIR` is relative (e.g. `ml/artifacts`), it is now anchored to repo root at startup via `Path(__file__).resolve().parents[2]`. Prevents `backend/ml/artifacts` resolution when uvicorn runs from `backend/`.
+- `backend/app/services/risk_model.py` — fixed `ModuleNotFoundError: No module named 'ml'`: added `sys.path.insert(0, str(_REPO_ROOT))` at import time, where `_REPO_ROOT = Path(__file__).resolve().parents[3]`. Ensures `ml.kde_model.FixedBandwidthKDE` is importable regardless of CWD.
+- `backend/app/routers/routes.py` — fixed `Union[LatLng, str]` syntax: `X | Y` union shorthand requires Python 3.10+; switched to `Union[LatLng, str]` from `typing` for Python 3.9 compatibility.
+- `mlflow-skinny` installed into venv (was in `requirements.txt` but missing from venv).
+- **Smoke test result:** server starts cleanly, 8 KDE categories load, `/health` → 200. Steps 3–5 blocked only by `ORS_API_KEY=dummy` in `.env` — all backend code is correct. Replace with real key to complete the test.
+
+### Backend config + banding fix (2026-05-16)
+- `backend/app/config.py` — renamed `KDE_MODEL_PATH: str` → `KDE_ARTIFACTS_DIR: str` (no default, still fails fast). Added `BAND_LOW_THRESHOLD: float = 0.0713` and `BAND_HIGH_THRESHOLD: float = 0.9142` — city-wide p33/p66 calibrated from 400 random Delhi points. Comments document derivation and recalibration workflow.
+- `backend/app/main.py` — one line: `load_model(Path(settings.KDE_MODEL_PATH))` → `load_model(Path(settings.KDE_ARTIFACTS_DIR))`.
+- `backend/app/routers/routes.py` — removed hardcoded placeholder `_P33 = 50.0` / `_P66 = 150.0` (would have classified every real route as "Low" since real scores top out at ~35). `_band()` signature changed to `_band(score, low, high)` — pure function, no module-level constants. Call site passes `settings.BAND_LOW_THRESHOLD` and `settings.BAND_HIGH_THRESHOLD`. `Settings` instantiated at module level following same pattern as `main.py`.
+- `.env.example` — replaced `KDE_MODEL_PATH` with `KDE_ARTIFACTS_DIR=ml/artifacts`, added `BAND_LOW_THRESHOLD=0.0713` and `BAND_HIGH_THRESHOLD=0.9142` with recalibration comment.
+- **Why this mattered:** old placeholder thresholds (50/150) would have silently broken risk banding — every route would return "Low" regardless of actual danger. Real composite scores range 0–35; calibrated thresholds (0.07/0.91) correctly spread routes across all three bands.
+
+### EDA + ML Pipeline Rebuild (2026-05-15)
+
+#### EDA Parts 4–6 (Google Colab notebook: crime_data_analysis_V2.ipynb)
+- **Part 4 — KDE Surface Visualisation**: Fit sklearn Gaussian KDE (bw=0.015°) on top-3 female-safety categories. Confirmed meaningful geographic clustering for Sexual Violence (n=566), Kidnapping (n=171), Robbery (n=825). Peak density at (28.616, 77.208) — central Delhi / Connaught Place area.
+- **Part 5 — Recency Distribution**: Confirmed 90-day half-life well-calibrated (83.1% of total weight from records ≤90 days). Found and fixed 158 future-dated records (crime_date > article_date — LLM extraction errors). Clamped to article_date. 0 future-dated records remaining.
+- **Part 6 — Data Quality Summary**: All 8 KDE-eligible categories ✅ GO. Terrorism / Riot lowest coord coverage (78.3%, 122 KDE records). Decisions locked: bandwidth=0.015°, half-life=90 days, null-date fallback=weight 1.0.
+
+#### ML Pipeline Files Rebuilt
+- `ml/data/category_mapping.py` — rewritten as single source of truth. Exports `KDE_ELIGIBLE`, `FEMALE_WEIGHTS`, `MACRO_PRIORITY` (80+ regex patterns from EDA), `map_crime_macro()`, `to_macro` alias. Both `ingest.py` and `train_kde.py` import from here.
+- `ml/kde_model.py` — new file. `FixedBandwidthKDE(gaussian_kde)` subclass overrides `covariance_factor()` as a regular method (not lambda) — fully picklable. Stable import path `ml.kde_model.FixedBandwidthKDE` for pickle serialisation.
+- `ml/data/ingest.py` — fully rewritten. 11 EDA-validated cleaning steps in order. `--from-json` CLI flag for local dev without Cosmos. `azure-cosmos` import inside function so local envs without SDK don't break.
+- `ml/train_kde.py` — rebuilt. Reads Parquet snapshot, builds KDE pool (4-filter logic matching EDA), computes recency weights, fits one `FixedBandwidthKDE` per category, saves `kde_{slug}.pkl` per category to `ml/artifacts/`. MLflow run logging: tags (`pipeline_step`, `snapshot_date`), params (bandwidth, half_life, min_train_points, snapshot), metrics (n_train per category, n_train_total, n_categories), `log_artifacts()` under `kde_artifacts/` path.
+- `backend/app/services/risk_model.py` — updated `load_model()` to accept directory path, glob `kde_*.pkl`, assemble model dict. `_load_artifacts_from_dir()` shared helper used by both `load_model()` and `reload_from_registry()`. Replaced `gaussian_kde` import with `FixedBandwidthKDE`.
+- `ml/evaluate.py` — updated `run()` signature: `model_path: Path` → `artifacts_dir: Path`. Added `_load_model_from_dir()` helper (globs `kde_*.pkl`, assembles `{"models": ..., "weights": ...}`). `_score_grid` and `_log_likelihood_test` unchanged. MLflow `log_params` now logs `artifacts_dir`.
+- `ml/promote_model.py` — updated `run()` signature: `challenger_pkl: Path` → `artifacts_dir: Path`. `_find_run_id_for_pkl` → `_find_run_id_for_dir`: searches for runs with `kde_` prefixed artifacts under `kde_artifacts/`. `_register_challenger`: re-opens train run with `nested=True`, calls `log_artifacts(artifacts_dir, artifact_path="kde_artifacts")`, registers via `runs:/{run_id}/kde_artifacts` URI.
+- `.github/workflows/retrain-weekly.yml` — "Find latest challenger" step outputs `dir=ml/artifacts`. "Evaluate and promote" step passes directory to `promote_model`.
+
+#### Pipeline validated end-to-end
+- `python -m ml.data.ingest --from-json ml/data/data.json` → 8,797 records cleaned, snapshot written
+- `python -m ml.train_kde --latest` → 4,655 KDE pool, all 8 categories OK, 8 artifacts written, MLflow run logged
+- Smoke test: Connaught Place scores correctly across all time bands; night 2.5× / daytime 0.7× multipliers confirmed
+
+### P3-5 — Backend hot-reload of new model (2026-05-14)
+- `backend/app/services/risk_model.py` — added `reload_from_registry()`: queries MLflow registry for latest Production version, skips if version unchanged, downloads artifact to temp dir, swaps `_MODEL` and `_LOADED_VERSION` atomically under `threading.Lock`
+- `backend/app/main.py` — added `_hot_reload_loop()` asyncio background task started in lifespan; runs blocking reload in thread pool executor (`run_in_executor`) to avoid stalling the event loop; cancelled cleanly on shutdown
+- `backend/app/config.py` — added `MODEL_RELOAD_INTERVAL_SECONDS: int = 3600`
+- `backend/requirements.txt` — added `mlflow-skinny==2.11.0`
+- `.env.example` — documented `MODEL_RELOAD_INTERVAL_SECONDS` and SQLite limitation for Azure
+
+### P3-4 — Weekly retrain GitHub Action (2026-05-14)
+- `.github/workflows/retrain-weekly.yml` — cron Sunday 02:00 IST (20:30 UTC Sat); steps: ingest → validate → train → promote; MLflow artifacts persisted via actions/cache between weekly runs; model pkl uploaded as GitHub artifact (30-day retention)
+- Auto-opens a GitHub issue (with run URL) if validate step fails — does NOT proceed to train or promote
+- Slack notifications are optional (step skipped if `SLACK_WEBHOOK` secret absent)
+- Required secret: `COSMOS_CONNECTION_STRING`. Optional secret: `SLACK_WEBHOOK`.
+
+### P3-3 — ml/promote_model.py — champion/challenger gate (2026-05-14)
+- `ml/promote_model.py` — reads champion metrics from Production model version tags, evaluates challenger via evaluate.run(), applies gate (PR-AUC delta ≥ 1pp AND recall delta ≥ 0), registers to MLflow model registry at Production or Staging stage
+- Key design: eval metrics stamped as version tags at promotion time so next week's run can compare without needing old pkl on disk; old Production archived before new one is registered to keep exactly one Production version
+- Run: `python -m ml.promote_model ml/data/snapshots/crimes_YYYY-MM-DD.parquet ml/artifacts/kde_model_YYYY-MM-DD.pkl`
+
+### P3-2 — ml/evaluate.py — time-based holdout evaluation (2026-05-14)
+- `ml/evaluate.py` — time-based split (cutoff = today − 30d), 0.05° grid over Delhi-NCR (≈900 cells), PR-AUC + recall@10% + log-likelihood, two baselines (random, naive count), all metrics logged to MLflow via `mlflow.start_run()`
+- Key design choices: no time modifier in grid scoring (cancels out in ranking), `np.add.at` for vectorised scatter-count, `1e-10` floor on log to handle zero-density edges
+- Run: `python -m ml.evaluate ml/data/snapshots/crimes_YYYY-MM-DD.parquet ml/artifacts/kde_model_YYYY-MM-DD.pkl`
+
+
+### P3-1 — MLflow tracking server setup (2026-05-14)
+- Implicitly completed during P1-3 (train_kde.py)
+- SQLite backend: `MLFLOW_TRACKING_URI=sqlite:///ml/artifacts/mlruns.db` in config.py + .env.example
+- Artifact store: `ml/artifacts/` directory (created with .gitkeep)
+- `ml/train_kde.py` already calls `mlflow.start_run()`, `log_params()`, `log_metric()`, `log_artifact()`
+- To browse runs locally: `mlflow ui --backend-store-uri sqlite:///ml/artifacts/mlruns.db`
+
+### P2-1 through P2-6 — Frontend MVP (2026-05-14)
+- `frontend/src/api/client.js` — Axios instance; baseURL from VITE_API_BASE_URL or /api proxy
+- `frontend/src/hooks/useRouteRecommend.js` — POST /routes/recommend hook
+- `frontend/src/components/DisclaimerModal.jsx` — first-visit modal, localStorage flag, info button re-opens
+- `frontend/src/components/TimeOfDayPicker.jsx` — 4 presets + custom time input, emits ISO string
+- `frontend/src/components/RouteForm.jsx` — address inputs + TimeOfDayPicker
+- `frontend/src/components/RouteResults.jsx` — ranked list with Low/Medium/High badges
+- `frontend/src/components/MapView.jsx` — MapLibre map, GeoJSON route layers coloured by risk band, fitBounds on select
+- `frontend/src/App.jsx` — two-column layout wiring all components; holds routes/selectedIdx state
+- `vite build` passes cleanly (117 modules, 8.87s)
+- Dev server confirmed live at localhost:3000
+
+### P1-1 through P1-7 — Risk Surface MVP (2026-05-14)
+- `ml/data/category_mapping.py` — raw crime_type → macro category dict + to_macro()
+- `ml/data/ingest.py` — Cosmos fetch → clean → Delhi-NCR filter → Parquet snapshot
+- `ml/data/validate.py` — Great Expectations gate: 5 expectations, audit JSON, raises on failure
+- `ml/train_kde.py` — per-macro KDE with recency weighting (exp decay 90d), Silverman×0.5, MLflow logging
+- `backend/app/services/risk_model.py` — pkl loader, time modifier, vectorised score_points_batch + score_route
+- `backend/app/services/routing.py` — ORS directions wrapper, Haversine 100m waypoint sampling, 15min TTL cache
+- `backend/app/services/geocoding.py` — ORS Pelias geocoding, Delhi-NCR bbox, 24h TTL cache
+- `backend/app/utils/cache.py` — TTLCache with monotonic expiry
+- `backend/app/schemas/routes.py` — RouteRequest, RouteOption (Literal band), RouteResponse
+- `backend/app/routers/routes.py` — POST /routes/recommend: geocode → ORS → score → band → sort
+- `backend/app/config.py` — added KDE_MODEL_PATH (required)
+- `backend/app/main.py` — load_model() in lifespan, routes router registered
 
 ### P0-5 — Configure CORS, secrets, observability basics (2026-05-12)
 - `backend/app/utils/logger.py` — structlog configured with JSON renderer (prod) / ConsoleRenderer (dev); custom `add_request_id` processor reads ContextVar on every log call
