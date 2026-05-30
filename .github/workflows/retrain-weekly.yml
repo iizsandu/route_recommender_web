@@ -17,11 +17,10 @@ env:
 jobs:
   retrain:
     runs-on: ubuntu-latest
-    # WHY write permission: the "open issue on failure" step calls the
-    # GitHub API to create an issue in this repo.
     permissions:
-      contents: read
-      issues: write
+      contents: write   # WHY write: update "ml-artifacts" release after successful retrain
+      issues: write     # WHY write: open issue when data validation fails
+      actions: write    # WHY write: trigger backend-deploy.yml after artifact update
 
     steps:
       - name: Checkout
@@ -152,6 +151,33 @@ jobs:
           # WHY kde_*.pkl glob: one file per category, not a single combined pkl.
           path: ml/artifacts/kde_*.pkl
           retention-days: 30
+
+      # ── Artifact release update + image rebuild ─────────────────────────────
+
+      # WHY update the release: the "ml-artifacts" GitHub Release is the source
+      # of truth for model weights used in Docker builds. After a successful
+      # retrain + promote, the new pkl files must replace the old ones so the
+      # next CI image build picks up the updated models automatically.
+      - name: Update ml-artifacts release with new models
+        if: success()
+        run: |
+          gh release upload ml-artifacts \
+            ml/artifacts/kde_*.pkl \
+            ml/artifacts/lgb_*.pkl \
+            ml/artifacts/heatmap*.png \
+            retrieval/bm25_model.pkl \
+            --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # WHY trigger build: artifact update alone doesn't push a new Docker image.
+      # Dispatching backend-deploy.yml here ensures the Container App gets a fresh
+      # image with the new models without any manual intervention.
+      - name: Trigger Docker image rebuild with new artifacts
+        if: success()
+        run: gh workflow run backend-deploy.yml --ref master
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ── Notification (optional) ──────────────────────────────────────────────
 

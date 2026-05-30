@@ -5,13 +5,24 @@ name: Build and Push Backend
 # image; deployment to Container Apps is done manually from a local terminal
 # (see scripts/deploy.ps1). This is still valid CI/CD — CI is fully automated,
 # CD is one command from a machine that has az login already working.
+#
+# WHY artifacts come from a GitHub Release (not local build):
+# ml/artifacts/ and retrieval/bm25_model.pkl are gitignored (large binary
+# files). Storing them in git would bloat history; baking them into the image
+# requires them to exist at build time. The solution: a permanent GitHub Release
+# named "ml-artifacts" holds the current pkl files. CI downloads them before
+# the Docker build, so every push triggers a clean, cache-free image build
+# with the correct code AND the correct model weights. No local builds needed.
 
 on:
   push:
     branches: [master]
     paths:
       - 'backend/**'
+      - 'retrieval/**'          # retrieval code changes also need a new image
+      - 'ml/kde_model.py'       # FixedBandwidthKDE class is baked into image
       - '.github/workflows/backend-deploy.yml'
+  workflow_dispatch:             # manual trigger + called by retrain-weekly after new artifacts
 
 permissions:
   contents: read
@@ -28,6 +39,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Download ML artifacts from GitHub Release
+        # WHY: ml/artifacts/ and retrieval/bm25_model.pkl are gitignored and
+        # not present after checkout. The "ml-artifacts" release holds the
+        # current production models. GITHUB_TOKEN has contents:read by default
+        # — no extra secret needed.
+        run: |
+          mkdir -p ml/artifacts retrieval
+          gh release download ml-artifacts \
+            --dir ml/artifacts \
+            --pattern "kde_*.pkl" \
+            --pattern "lgb_*.pkl" \
+            --pattern "heatmap*.png"
+          gh release download ml-artifacts \
+            --dir retrieval \
+            --pattern "bm25_model.pkl"
+          echo "Downloaded artifacts:"
+          du -sh ml/artifacts/ retrieval/bm25_model.pkl
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -38,10 +69,9 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
-          # WHY context=.: Dockerfile copies ml/kde_model.py and ml/artifacts/ which
-          # live outside backend/. The build context must be the repo root so those
-          # paths are accessible. ml/artifacts/ is gitignored so CI images won't have
-          # model files — the real artifacts are baked in via local build + deploy.ps1.
+          # WHY context=.: Dockerfile copies ml/kde_model.py, ml/artifacts/,
+          # and retrieval/ which live outside backend/. Build context must be
+          # the repo root so those paths are accessible.
           context: .
           file: ./backend/Dockerfile
           push: true
@@ -56,7 +86,7 @@ jobs:
             -e ORS_API_KEY="dummy_key_for_smoke_test" \
             -e KDE_ARTIFACTS_DIR="/repo/ml/artifacts" \
             ghcr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          sleep 6
+          sleep 10
           curl --fail --retry 3 --retry-delay 2 http://localhost:8000/health
           docker stop smoke && docker rm smoke
 
